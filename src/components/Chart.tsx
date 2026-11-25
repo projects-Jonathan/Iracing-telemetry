@@ -1,0 +1,348 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { Session } from '../types';
+import { channelOn, deltaOn, valueAtDist, type DistLap } from '../analysis/lap';
+import { cornersFor } from '../analysis/corners';
+import { CANON_BY_KEY } from '../parsers/channels';
+import { cursor, setApp } from '../state/store';
+import { endHover, seekDist, syncCursorToDist } from '../state/actions';
+import { fmtDist, fmtNum, prepCanvas, ticks, useColors, useWidth, type Colors } from './util';
+
+interface Props {
+  s: Session;
+  ref_: DistLap;
+  cmp: DistLap | null;
+  panels: string[];
+  zoom: [number, number] | null;
+}
+
+interface PanelGeo {
+  key: string;
+  label: string;
+  unit: string;
+  dp: number;
+  top: number; // plot top (css px)
+  h: number; // plot height
+  lo: number;
+  hi: number;
+  a: Float32Array | null; // reference series (or delta)
+  b: Float32Array | null; // compare series
+  delta: boolean;
+  stepped: boolean;
+}
+
+const ML = 48, MR = 12, TITLE = 20, GAP = 8, AXIS = 24, CORNER_ROW = 16;
+const FIXED_PCT = new Set(['throttle', 'brake', 'clutch']);
+
+function panelHeight(key: string): number {
+  if (key === 'delta') return 80;
+  if (key === 'gear') return 64;
+  if (FIXED_PCT.has(key)) return 76;
+  return 104;
+}
+
+export function Chart({ s, ref_, cmp, panels, zoom }: Props) {
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const baseRef = useRef<HTMLCanvasElement>(null);
+  const overRef = useRef<HTMLCanvasElement>(null);
+  const width = useWidth(wrapRef);
+  const colors = useColors();
+  const [sel, setSel] = useState<[number, number] | null>(null);
+  const drag = useRef<{ x0: number; moved: boolean } | null>(null);
+
+  const L = s.trackLength;
+  const [d0, d1] = zoom ?? [0, L];
+  const corners = useMemo(() => cornersFor(s, ref_), [s, ref_]);
+
+  const geo = useMemo(() => {
+    let y = CORNER_ROW;
+    const out: PanelGeo[] = [];
+    const step = ref_.step;
+    const k0 = Math.max(0, Math.floor(d0 / step)), k1 = Math.min(ref_.n - 1, Math.ceil(d1 / step));
+    for (const key of panels) {
+      const isDelta = key === 'delta';
+      if (isDelta && !cmp) continue;
+      const a = isDelta ? deltaOn(ref_, cmp as DistLap) : channelOn(s, ref_, key);
+      if (!a) continue;
+      const b = isDelta ? null : cmp ? channelOn(s, cmp, key) : null;
+      const def = CANON_BY_KEY[key];
+      const info = s.info[key];
+      let lo = Infinity, hi = -Infinity;
+      for (const arr of [a, b]) {
+        if (!arr) continue;
+        for (let k = k0; k <= k1 && k < arr.length; k++) {
+          const v = arr[k];
+          if (!isFinite(v)) continue;
+          if (v < lo) lo = v;
+          if (v > hi) hi = v;
+        }
+      }
+      if (FIXED_PCT.has(key)) { lo = 0; hi = 100; }
+      else if (key === 'gear') { lo = Math.min(lo, 1) - 0.5; hi = hi + 0.5; }
+      else if (isDelta) { const m = Math.max(0.05, Math.abs(lo), Math.abs(hi)) * 1.1; lo = -m; hi = m; }
+      else if (!(hi > lo)) { lo -= 1; hi += 1; }
+      else { const pad = (hi - lo) * 0.08; lo -= pad; hi += pad; }
+      const h = panelHeight(key);
+      out.push({
+        key,
+        label: isDelta ? 'Delta (compare − reference)' : (def?.label ?? info?.label ?? key),
+        unit: isDelta ? 's' : (info?.unit ?? def?.unit ?? ''),
+        dp: isDelta ? 3 : (def?.dp ?? 2),
+        top: y + TITLE, h, lo, hi, a, b, delta: isDelta, stepped: key === 'gear',
+      });
+      y += TITLE + h + GAP;
+    }
+    return { panels: out, height: y + AXIS };
+  }, [s, ref_, cmp, panels, d0, d1]);
+
+  const plotW = Math.max(10, width - ML - MR);
+  const xOf = (d: number) => ML + ((d - d0) / (d1 - d0)) * plotW;
+  const dOf = (x: number) => Math.max(0, Math.min(L, d0 + ((x - ML) / plotW) * (d1 - d0)));
+
+  // ---- base layer: grid, traces, labels ----
+  useEffect(() => {
+    const ctx = prepCanvas(baseRef.current, width, geo.height);
+    if (!ctx) return;
+    drawBase(ctx, geo.panels, colors, { width, height: geo.height, d0, d1, step: ref_.step, xOf, sectors: s.sectors.map((p) => p * L), corners: corners.map((c) => ({ name: c.name, d: c.apex * ref_.step })) });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [geo, width, colors, d0, d1]);
+
+  // ---- overlay: cursor, ghost, values, selection ----
+  useEffect(() => {
+    const draw = () => {
+      const ctx = prepCanvas(overRef.current, width, geo.height);
+      if (!ctx) return;
+      const c = cursor.get();
+      if (sel) {
+        const xa = xOf(Math.min(sel[0], sel[1])), xb = xOf(Math.max(sel[0], sel[1]));
+        ctx.fillStyle = colors.ink;
+        ctx.globalAlpha = 0.08;
+        ctx.fillRect(xa, CORNER_ROW, xb - xa, geo.height - CORNER_ROW - AXIS);
+        ctx.globalAlpha = 1;
+      }
+      const last = geo.panels[geo.panels.length - 1];
+      if (!last) return;
+      const yTop = geo.panels[0].top, yBot = last.top + last.h;
+      // ghost (compare car at the same elapsed time)
+      if (c.cmpD !== null && Math.abs(c.cmpD - c.d) > ref_.step * 2 && c.cmpD >= d0 && c.cmpD <= d1) {
+        const gx = xOf(c.cmpD);
+        ctx.strokeStyle = colors.cmp;
+        ctx.setLineDash([3, 3]);
+        ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(gx, yTop); ctx.lineTo(gx, yBot); ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      if (c.d < d0 || c.d > d1) return;
+      const x = xOf(c.d);
+      ctx.strokeStyle = colors.ink2;
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(x, yTop - TITLE + 4); ctx.lineTo(x, yBot); ctx.stroke();
+      // distance label on the x axis
+      ctx.font = '500 11px ' + getComputedStyle(document.body).getPropertyValue('--mono');
+      const lab = fmtDist(c.d);
+      const tw = ctx.measureText(lab).width + 10;
+      const lx = Math.max(ML, Math.min(width - MR - tw, x - tw / 2));
+      ctx.fillStyle = colors.ink;
+      roundRect(ctx, lx, yBot + 4, tw, 17, 4); ctx.fill();
+      ctx.fillStyle = colors.surface;
+      ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+      ctx.fillText(lab, lx + 5, yBot + 12.5);
+
+      for (const p of geo.panels) {
+        const yOf = (v: number) => p.top + p.h - ((v - p.lo) / (p.hi - p.lo)) * p.h;
+        const va = p.a ? valueAtDist(p.a, ref_.step, c.d) : NaN;
+        const vb = p.b ? valueAtDist(p.b, ref_.step, c.d) : NaN;
+        const dot = (v: number, col: string) => {
+          if (!isFinite(v)) return;
+          ctx.beginPath(); ctx.arc(x, yOf(v), 4, 0, Math.PI * 2);
+          ctx.fillStyle = col; ctx.fill();
+          ctx.lineWidth = 2; ctx.strokeStyle = colors.surface; ctx.stroke();
+        };
+        dot(vb, colors.cmp);
+        dot(va, p.delta ? colors.cmp : colors.ref);
+        // readout in the title row (text in ink, swatch carries identity)
+        ctx.textAlign = 'right'; ctx.textBaseline = 'alphabetic';
+        ctx.font = '500 12px ' + getComputedStyle(document.body).getPropertyValue('--mono');
+        let rx = width - MR;
+        const ty = p.top - 6;
+        const put = (text: string, col: string | null) => {
+          ctx.fillStyle = colors.ink;
+          ctx.fillText(text, rx, ty);
+          rx -= ctx.measureText(text).width + 4;
+          if (col) { ctx.fillStyle = col; ctx.fillRect(rx - 10, ty - 5, 10, 3); rx -= 18; }
+        };
+        const unit = p.unit ? ` ${p.unit}` : '';
+        if (p.delta) {
+          put(`${va > 0 ? '+' : ''}${fmtNum(va, 3)}${unit}`, null);
+        } else {
+          const f = (v: number) => (p.stepped ? fmtNum(v, 0) : fmtNum(v, p.dp));
+          if (p.b) { put(`${f(vb)}${unit}`, colors.cmp); }
+          put(`${f(va)}${p.b ? '' : unit}`, colors.ref);
+        }
+      }
+    };
+    draw();
+    return cursor.subscribe(draw);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [geo, width, colors, d0, d1, sel]);
+
+  // ---- interaction ----
+  const localX = (e: React.PointerEvent) => e.clientX - (e.currentTarget as HTMLElement).getBoundingClientRect().left;
+  const onDown = (e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    drag.current = { x0: localX(e), moved: false };
+  };
+  const onMove = (e: React.PointerEvent) => {
+    const x = localX(e);
+    if (drag.current) {
+      if (Math.abs(x - drag.current.x0) > 5) drag.current.moved = true;
+      if (drag.current.moved) setSel([dOf(drag.current.x0), dOf(x)]);
+    }
+    syncCursorToDist(dOf(x), true);
+  };
+  const onUp = (e: React.PointerEvent) => {
+    const x = localX(e);
+    const dr = drag.current;
+    drag.current = null;
+    if (!dr) return;
+    if (dr.moved) {
+      const a = dOf(dr.x0), b = dOf(x);
+      if (Math.abs(b - a) > 20) setApp({ zoom: [Math.min(a, b), Math.max(a, b)] });
+      setSel(null);
+    } else {
+      seekDist(dOf(x));
+    }
+  };
+
+  return (
+    <div className="chart-wrap" ref={wrapRef} style={{ height: geo.height }}>
+      <canvas ref={baseRef} aria-label="Telemetry traces by lap distance" role="img" />
+      <canvas
+        ref={overRef}
+        className="overlay"
+        onPointerDown={onDown}
+        onPointerMove={onMove}
+        onPointerUp={onUp}
+        onPointerLeave={() => { if (!drag.current) endHover(); }}
+        onDoubleClick={() => setApp({ zoom: null })}
+      />
+    </div>
+  );
+}
+
+function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+interface BaseOpts {
+  width: number;
+  height: number;
+  d0: number;
+  d1: number;
+  step: number;
+  xOf: (d: number) => number;
+  sectors: number[];
+  corners: { name: string; d: number }[];
+}
+
+function drawBase(ctx: CanvasRenderingContext2D, panels: PanelGeo[], c: Colors, o: BaseOpts) {
+  const mono = getComputedStyle(document.body).getPropertyValue('--mono');
+  const sans = getComputedStyle(document.body).getPropertyValue('--font');
+  const right = o.width - MR;
+  if (!panels.length) return;
+  const yTop = panels[0].top, last = panels[panels.length - 1], yBot = last.top + last.h;
+
+  // corner labels
+  ctx.font = `500 10px ${mono}`;
+  ctx.fillStyle = c.ink3;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  for (const cn of o.corners) if (cn.d >= o.d0 && cn.d <= o.d1) ctx.fillText(cn.name, o.xOf(cn.d), 2);
+
+  // sector lines
+  ctx.strokeStyle = c.ink3;
+  ctx.setLineDash([3, 3]);
+  ctx.lineWidth = 1;
+  for (let i = 1; i < o.sectors.length; i++) {
+    const d = o.sectors[i];
+    if (d < o.d0 || d > o.d1) continue;
+    const x = Math.round(o.xOf(d)) + 0.5;
+    ctx.beginPath(); ctx.moveTo(x, yTop); ctx.lineTo(x, yBot); ctx.stroke();
+  }
+  ctx.setLineDash([]);
+
+  // x axis ticks
+  const xt = ticks(o.d0, o.d1, Math.max(2, Math.floor((right - ML) / 90)));
+  ctx.fillStyle = c.ink3;
+  ctx.textBaseline = 'top';
+  ctx.textAlign = 'center';
+  for (const d of xt) ctx.fillText(fmtDist(d), o.xOf(d), yBot + 6);
+
+  const k0 = Math.max(0, Math.floor(o.d0 / o.step) - 1);
+  for (const p of panels) {
+    const yOf = (v: number) => p.top + p.h - ((v - p.lo) / (p.hi - p.lo)) * p.h;
+    // title
+    ctx.font = `600 11px ${sans}`;
+    ctx.fillStyle = c.ink2;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText(`${p.label.toUpperCase()}${p.unit ? `  ·  ${p.unit}` : ''}`, ML, p.top - 6);
+
+    // grid + y ticks
+    const yt = p.key === 'gear'
+      ? ticks(Math.ceil(p.lo), Math.floor(p.hi), 3).filter((v) => Number.isInteger(v))
+      : FIXED_PCT.has(p.key) ? [0, 50, 100] : ticks(p.lo, p.hi, p.h > 90 || p.delta ? 4 : 2);
+    ctx.font = `400 10px ${mono}`;
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    for (const v of yt) {
+      const y = Math.round(yOf(v)) + 0.5;
+      if (y < p.top - 1 || y > p.top + p.h + 1) continue;
+      ctx.strokeStyle = p.delta && v === 0 ? c.ink3 : c.grid;
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(ML, y); ctx.lineTo(right, y); ctx.stroke();
+      ctx.fillStyle = c.ink3;
+      const dp = p.stepped ? 0 : Math.abs(p.hi - p.lo) < 2 ? 2 : Math.abs(p.hi - p.lo) < 20 ? 1 : 0;
+      ctx.fillText(fmtNum(v, p.delta ? 2 : dp), ML - 6, y);
+    }
+
+    // traces (clip to plot)
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(ML, p.top - 2, right - ML, p.h + 4);
+    ctx.clip();
+    const trace = (arr: Float32Array, col: string, dash: number[]) => {
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 2;
+      ctx.lineJoin = 'round';
+      ctx.setLineDash(dash);
+      ctx.beginPath();
+      let started = false;
+      const k1 = Math.min(arr.length - 1, Math.ceil(o.d1 / o.step) + 1);
+      let prevY = 0;
+      for (let k = k0; k <= k1; k++) {
+        const v = arr[k];
+        if (!isFinite(v)) { started = false; continue; }
+        const x = o.xOf(k * o.step), y = yOf(v);
+        if (!started) { ctx.moveTo(x, y); started = true; }
+        else if (p.stepped) { ctx.lineTo(x, prevY); ctx.lineTo(x, y); }
+        else ctx.lineTo(x, y);
+        prevY = y;
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+    };
+    if (p.delta && p.a) trace(p.a, c.cmp, []);
+    else {
+      if (p.b) trace(p.b, c.cmp, [5, 2]);
+      if (p.a) trace(p.a, c.ref, []);
+    }
+    ctx.restore();
+  }
+}

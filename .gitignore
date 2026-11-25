@@ -1,0 +1,9 @@
+node_modules
+dist
+*.local
+.DS_Store
+# never commit telemetry recordings
+*.ibt
+*.telemetry.json
+*.jsonidx
+*.tsbuildinfo
