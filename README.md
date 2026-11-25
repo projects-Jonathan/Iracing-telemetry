@@ -6,7 +6,7 @@ A browser-only telemetry viewer for sim racing. Drop in an iRacing `.ibt` file o
 - **Lap playback**: play, pause and scrub through the lap at 0.25×–4×. The chart playhead, the track-map car dots, a live G-force circle with a trail, pedal bars and a steering wheel all move together. A ghost line shows where the compare car is at the same moment.
 - **Track map**: from GPS for `.ibt` files, rebuilt from heading and speed for SimHub files. Coloured by speed, throttle, brake, gear, lateral G, steering or time gained/lost.
 - **Sector & corner analysis**: sector splits with session bests and theoretical best lap. Corners are detected automatically, with brake points, entry/min/exit speeds and time gained or lost per corner.
-- **Private**: files are parsed in a Web Worker on your machine and never uploaded. Opened sessions are kept in the browser's IndexedDB so you can reopen them later.
+- **Private**: files are parsed in a Web Worker on your machine and never uploaded.
 
 Light mode by default, with a dark-mode toggle in the header.
 
@@ -25,6 +25,7 @@ npm run dev        # http://localhost:5173
 npm run build      # type-check + production build to dist/
 npx tsx scripts/inspect.ts <file...>   # print laps/sectors for telemetry files from the command line
 npx tsx scripts/corners.ts <file>      # print detected corners for the two fastest laps
+npx tsx scripts/make-demo.ts <file.ibt> 8 10   # rebuild public/demo/session.bin (the "Try it out" demo) from chosen laps
 ```
 
 ## Deploying
@@ -37,6 +38,6 @@ npx tsx scripts/corners.ts <file>      # print detected corners for the two fast
 src/parsers/     .ibt and SimHub readers, session-info YAML, channel name/unit mapping
 src/analysis/    lap detection, distance resampling, delta, track map, corners
 src/worker/      parsing runs off the main thread
-src/state/       app store, actions (open/save/playback), IndexedDB
+src/state/       app store, actions (open files, demo, playback)
 src/components/  chart (canvas), track map, live dash, tables, channel picker
 ```

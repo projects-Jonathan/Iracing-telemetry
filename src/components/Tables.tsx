@@ -49,8 +49,8 @@ export function LapTable({ s }: { s: Session }) {
                 <td style={{ textAlign: 'center' }}>
                   {l.complete && (
                     <span className="pick">
-                      <button className={`r ${i === refLap ? 'on' : ''}`} onClick={() => selectLaps(i, cmpLap === i ? null : cmpLap)} aria-pressed={i === refLap}>Ref</button>
                       <button className={`c ${i === cmpLap ? 'on' : ''}`} disabled={i === refLap} onClick={() => selectLaps(refLap, i === cmpLap ? null : i)} aria-pressed={i === cmpLap}>Compare</button>
+                      <button className={`r ${i === refLap ? 'on' : ''}`} onClick={() => selectLaps(i, cmpLap === i ? null : cmpLap)} aria-pressed={i === refLap}>Ref</button>
                     </span>
                   )}
                 </td>

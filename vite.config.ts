@@ -1,9 +1,10 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
-// GitHub Pages serves the site from /<repo-name>/
+// Relative asset paths, so the build works at a domain root (unison.jonathanwan.link)
+// and under a sub-path (github.io/Iracing-telemetry/) alike.
 export default defineConfig({
-  base: process.env.GITHUB_PAGES ? '/Iracing-telemetry/' : '/',
+  base: './',
   plugins: [react()],
   worker: { format: 'es' },
 });

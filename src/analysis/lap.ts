@@ -118,6 +118,27 @@ export function sampleAtTime(s: Session, lap: Lap, t: number): number {
   return lo + (target - time[lo]) / (time[hi] - time[lo] || 1);
 }
 
+export interface IncidentMark {
+  /** lap distance, m */
+  d: number;
+  /** incident points added at this spot (1x, 2x, 4x…) */
+  count: number;
+}
+
+/** Where on the lap the incident counter went up. */
+export function incidentsOnLap(s: Session, lap: Lap): IncidentMark[] {
+  const inc = s.channels.incidents;
+  const p = s.channels.lapPct;
+  if (!inc || !lap.incidents) return [];
+  const out: IncidentMark[] = [];
+  const i0 = Math.max(1, Math.ceil(lap.start)), i1 = Math.min(inc.length - 1, Math.floor(lap.end));
+  for (let i = i0; i <= i1; i++) {
+    const add = inc[i] - inc[i - 1];
+    if (add > 0) out.push({ d: Math.max(0, Math.min(1, p[i])) * s.trackLength, count: Math.round(add) });
+  }
+  return out;
+}
+
 /** Value of a grid array at a distance (linear). */
 export function valueAtDist(a: Float32Array, step: number, d: number): number {
   return at(a, d / step);

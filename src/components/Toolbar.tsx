@@ -11,7 +11,6 @@ export function Toolbar({ s }: { s: Session }) {
   const cmpLap = useApp((a) => a.cmpLap);
   const playing = useApp((a) => a.playing);
   const rate = useApp((a) => a.rate);
-  const zoom = useApp((a) => a.zoom);
   const t = useSignal(playT);
   const dur = getLapDuration();
 
@@ -37,14 +36,7 @@ export function Toolbar({ s }: { s: Session }) {
 
   return (
     <section className="card toolbar" aria-label="Lap selection and playback">
-      <div className="ctl">
-        <label className="label" htmlFor="refSel">Reference</label>
-        <div className="row"><span className="sw ref" />
-          <select id="refSel" value={refLap ?? ''} onChange={(e) => selectLaps(Number(e.target.value), cmpLap === Number(e.target.value) ? null : cmpLap)}>
-            {options.map(({ i, l }) => <option key={i} value={i}>{label(l)}</option>)}
-          </select>
-        </div>
-      </div>
+      {/* Compare is the lap being analysed, so it leads; Reference is the benchmark beside it. */}
       <div className="ctl">
         <label className="label" htmlFor="cmpSel">Compare</label>
         <div className="row"><span className="sw cmp" />
@@ -54,9 +46,17 @@ export function Toolbar({ s }: { s: Session }) {
           </select>
         </div>
       </div>
+      <div className="ctl">
+        <label className="label" htmlFor="refSel">Reference</label>
+        <div className="row"><span className="sw ref" />
+          <select id="refSel" value={refLap ?? ''} onChange={(e) => selectLaps(Number(e.target.value), cmpLap === Number(e.target.value) ? null : cmpLap)}>
+            {options.map(({ i, l }) => <option key={i} value={i}>{label(l)}</option>)}
+          </select>
+        </div>
+      </div>
       <div className="stats">
-        <div className="stat"><span className="label">Reference</span><span className="v">{fmtLap(ref?.time)}</span></div>
         <div className="stat"><span className="label">Compare</span><span className="v">{fmtLap(cmp?.time)}</span></div>
+        <div className="stat"><span className="label">Reference</span><span className="v">{fmtLap(ref?.time)}</span></div>
         <div className="stat"><span className="label">Gap</span><span className={`v ${gap === null ? '' : gap > 0 ? 'loss' : 'gain'}`}>{fmtDelta(gap)}</span></div>
       </div>
       <div className="play">
@@ -70,7 +70,6 @@ export function Toolbar({ s }: { s: Session }) {
         <select aria-label="Playback speed" value={rate} onChange={(e) => setApp({ rate: Number(e.target.value) })}>
           {RATES.map((r) => <option key={r} value={r}>{r}×</option>)}
         </select>
-        {zoom && <button className="btn" onClick={() => setApp({ zoom: null })}>Show full lap</button>}
       </div>
     </section>
   );

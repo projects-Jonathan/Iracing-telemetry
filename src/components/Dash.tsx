@@ -138,18 +138,18 @@ export function Dash({ s, refLap, cmpLap }: Props) {
         )}
         <div className="readouts">
           <div className="ro-row head"><span /><span>km/h</span><span>gear</span><span>rpm</span></div>
-          <div className="ro-row"><span className="sw ref" /><span className="num" ref={r('spdR')} /><span className="num" ref={r('gearR')} /><span className="num" ref={r('rpmR')} /></div>
           {cmpLap && <div className="ro-row"><span className="sw cmp" /><span className="num" ref={r('spdC')} /><span className="num" ref={r('gearC')} /><span className="num" ref={r('rpmC')} /></div>}
+          <div className="ro-row"><span className="sw ref" /><span className="num" ref={r('spdR')} /><span className="num" ref={r('gearR')} /><span className="num" ref={r('rpmR')} /></div>
           <div className="pedals" style={{ marginTop: 6 }}>
             <span>Throttle</span>
             <div style={{ display: 'grid', gap: 3 }}>
-              <div className="pbar ref"><div ref={r('thrR')} /></div>
               {cmpLap && <div className="pbar cmp"><div ref={r('thrC')} /></div>}
+              <div className="pbar ref"><div ref={r('thrR')} /></div>
             </div>
             <span>Brake</span>
             <div style={{ display: 'grid', gap: 3 }}>
-              <div className="pbar ref"><div ref={r('brkR')} /></div>
               {cmpLap && <div className="pbar cmp"><div ref={r('brkC')} /></div>}
+              <div className="pbar ref"><div ref={r('brkR')} /></div>
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 4 }}>

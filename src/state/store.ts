@@ -1,6 +1,5 @@
 import { useSyncExternalStore } from 'react';
 import type { Session } from '../types';
-import type { SessionSummary } from './db';
 
 /** Minimal observable value. */
 export class Signal<T> {
@@ -26,7 +25,6 @@ export function useSignal<T>(s: Signal<T>): T {
 export const DEFAULT_PANELS = ['delta', 'speed', 'throttle', 'brake', 'gear', 'steer'];
 
 export interface AppState {
-  library: SessionSummary[];
   session: Session | null;
   loading: { name: string; stage: string; p: number } | null;
   error: string | null;
@@ -60,7 +58,6 @@ function initialPanels(): string[] {
 }
 
 export const app = new Signal<AppState>({
-  library: [],
   session: null,
   loading: null,
   error: null,

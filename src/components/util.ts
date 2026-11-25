@@ -98,3 +98,30 @@ export function seqColor(lo: string, hi: string, f: number): string {
   const t = Math.max(0, Math.min(1, f));
   return `rgb(${Math.round(a[0] + (b[0] - a[0]) * t)},${Math.round(a[1] + (b[1] - a[1]) * t)},${Math.round(a[2] + (b[2] - a[2]) * t)})`;
 }
+
+/** Rendered height of an element, kept up to date. */
+export function useHeight(ref: RefObject<HTMLElement | null>): number {
+  const [h, setH] = useState(0);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setH(el.getBoundingClientRect().height));
+    ro.observe(el);
+    setH(el.getBoundingClientRect().height);
+    return () => ro.disconnect();
+  }, [ref]);
+  return h;
+}
+
+/** True while a CSS media query matches. */
+export function useMedia(query: string): boolean {
+  const [m, setM] = useState(() => window.matchMedia(query).matches);
+  useEffect(() => {
+    const mq = window.matchMedia(query);
+    const on = () => setM(mq.matches);
+    mq.addEventListener('change', on);
+    on();
+    return () => mq.removeEventListener('change', on);
+  }, [query]);
+  return m;
+}

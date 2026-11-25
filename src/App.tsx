@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { setApp, useApp } from './state/store';
-import { closeSession, openFiles, refreshLibrary, setTheme } from './state/actions';
+import { clearOldStorage, closeSession, openFiles, setTheme } from './state/actions';
 import { Home } from './components/Home';
 import { SessionView } from './components/SessionView';
 
@@ -13,7 +13,7 @@ export function App() {
   const input = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
 
-  useEffect(() => { refreshLibrary(); }, []);
+  useEffect(() => { clearOldStorage(); }, []);
 
   return (
     <div
@@ -29,7 +29,6 @@ export function App() {
         </button>
         <span className="spacer" />
         {loading && session && <span className="muted" style={{ fontSize: 13 }}>{loading.stage} {Math.round(loading.p * 100)}%…</span>}
-        {session && <button className="btn" onClick={closeSession}>All sessions</button>}
         <button className="btn" onClick={() => input.current?.click()}>Open file…</button>
         <input ref={input} type="file" accept=".ibt,.json" multiple hidden onChange={(e) => { openFiles([...(e.target.files ?? [])]); e.target.value = ''; }} />
         <button className="btn icon" onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')} aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`} title="Toggle theme">
@@ -43,7 +42,6 @@ export function App() {
         {notice && <div className="banner" role="status"><span>{notice}</span><button className="btn ghost close" onClick={() => setApp({ notice: null })} aria-label="Dismiss">✕</button></div>}
         {session ? <SessionView s={session} /> : <Home />}
       </main>
-      <footer className="footer">Unison · telemetry is processed locally in your browser</footer>
     </div>
   );
 }

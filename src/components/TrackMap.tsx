@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import type { Session } from '../types';
-import { channelOn, type DistLap } from '../analysis/lap';
+import { channelOn, incidentsOnLap, type DistLap } from '../analysis/lap';
 import { cornersFor } from '../analysis/corners';
 import { cursor, setApp } from '../state/store';
 import { endHover, seekDist, syncCursorToDist } from '../state/actions';
@@ -24,7 +24,6 @@ export function TrackMap({ s, ref_, cmp, channel, zoom }: Props) {
   const overRef = useRef<HTMLCanvasElement>(null);
   const width = useWidth(wrapRef);
   const colors = useColors();
-  const [onLap, setOnLap] = useState<'ref' | 'cmp'>('ref');
   const map = s.map;
 
   // Rotate the outline to its principal axis so it fills a landscape box.
@@ -59,7 +58,8 @@ export function TrackMap({ s, ref_, cmp, channel, zoom }: Props) {
     return [ox + (proj as NonNullable<typeof proj>).px[i] * scale, oy + (proj as NonNullable<typeof proj>).py[i] * scale];
   };
 
-  const lapForColor = onLap === 'cmp' && cmp ? cmp : ref_;
+  // The compare lap is the one being analysed, so the map is coloured from it (reference only if there is no compare).
+  const lapForColor = cmp ?? ref_;
   const values = useMemo(() => {
     if (channel === 'delta') {
       if (!cmp) return null;
@@ -144,8 +144,29 @@ export function TrackMap({ s, ref_, cmp, channel, zoom }: Props) {
       const dx = x - cx, dy = y - cy, m = Math.hypot(dx, dy) || 1;
       ctx.fillText(c.name, x + (dx / m) * 16, y + (dy / m) * 16);
     }
+    // incident markers: warning triangle in the lap's colour, with the count beside it
+    const mark = (d: number, count: number, col: string, side: number) => {
+      const [x, y] = pt(d / map.step);
+      const dx = x - cx, dy = y - cy, m = Math.hypot(dx, dy) || 1;
+      // nudge compare-lap markers inward and reference outward so overlapping ones stay visible
+      const tx = x + (dx / m) * 4 * side, ty = y + (dy / m) * 4 * side;
+      ctx.beginPath();
+      ctx.moveTo(tx, ty - 10); ctx.lineTo(tx + 9, ty + 6); ctx.lineTo(tx - 9, ty + 6); ctx.closePath();
+      ctx.fillStyle = col; ctx.fill();
+      ctx.lineWidth = 2; ctx.strokeStyle = colors.surface; ctx.lineJoin = 'round'; ctx.stroke();
+      ctx.fillStyle = '#fff';
+      ctx.font = `700 10px ${getComputedStyle(document.body).getPropertyValue('--font')}`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('!', tx, ty + 1);
+      ctx.fillStyle = colors.ink;
+      ctx.font = `600 11px ${getComputedStyle(document.body).getPropertyValue('--mono')}`;
+      ctx.textAlign = side > 0 ? 'left' : 'right';
+      ctx.fillText(`${count}x`, tx + 12 * side, ty);
+    };
+    if (cmp) for (const i of incidentsOnLap(s, cmp.lap)) mark(i.d, i.count, colors.cmp, -1);
+    for (const i of incidentsOnLap(s, ref_.lap)) mark(i.d, i.count, colors.ref, 1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [proj, width, height, colors, values, range, zoom, s, ref_]);
+  }, [proj, width, height, colors, values, range, zoom, s, ref_, cmp]);
 
   // ---- overlay: car positions ----
   useEffect(() => {
@@ -153,14 +174,30 @@ export function TrackMap({ s, ref_, cmp, channel, zoom }: Props) {
       const ctx = prepCanvas(overRef.current, width, height);
       if (!ctx || !proj || !map) return;
       const c = cursor.get();
-      const car = (d: number, col: string, r: number) => {
+      // Reference: blue ring underneath. Compare: solid orange dot on top.
+      // Different shapes keep both visible even when the cars are side by side.
+      const ring = (d: number) => {
         const [x, y] = pt(d / map.step);
-        ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
-        ctx.fillStyle = col; ctx.fill();
-        ctx.lineWidth = 2.5; ctx.strokeStyle = colors.surface; ctx.stroke();
+        ctx.beginPath(); ctx.arc(x, y, 10, 0, Math.PI * 2);
+        ctx.lineWidth = 6; ctx.strokeStyle = colors.surface; ctx.stroke();
+        ctx.lineWidth = 3; ctx.strokeStyle = colors.ref; ctx.stroke();
       };
-      if (c.cmpD !== null) car(c.cmpD, colors.cmp, 6);
-      car(c.d, colors.ref, 7);
+      const dot = (d: number) => {
+        const [x, y] = pt(d / map.step);
+        ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI * 2);
+        ctx.fillStyle = colors.cmp; ctx.fill();
+        ctx.lineWidth = 2; ctx.strokeStyle = colors.surface; ctx.stroke();
+      };
+      if (c.cmpD === null) {
+        // no compare lap: the reference car is the only car, drawn as a solid dot
+        const [x, y] = pt(c.d / map.step);
+        ctx.beginPath(); ctx.arc(x, y, 7, 0, Math.PI * 2);
+        ctx.fillStyle = colors.ref; ctx.fill();
+        ctx.lineWidth = 2.5; ctx.strokeStyle = colors.surface; ctx.stroke();
+        return;
+      }
+      ring(c.d);
+      dot(c.cmpD);
     };
     draw();
     return cursor.subscribe(draw);
@@ -189,12 +226,6 @@ export function TrackMap({ s, ref_, cmp, channel, zoom }: Props) {
         <select id="mapCh" value={channel} onChange={(e) => setApp({ mapChannel: e.target.value })}>
           {MAP_CHANNELS.filter(([k]) => (k === 'delta' ? !!cmp : !!s.channels[k])).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
         </select>
-        {channel !== 'delta' && cmp && (
-          <select aria-label="Lap used for colour" value={onLap} onChange={(e) => setOnLap(e.target.value as 'ref' | 'cmp')}>
-            <option value="ref">reference lap</option>
-            <option value="cmp">compare lap</option>
-          </select>
-        )}
         <span className="legend" title={channel === 'delta' ? 'Blue: compare lap gains time · Orange: compare lap loses time' : ''}>
           {channel === 'delta' ? <>gain<span className="bar" style={{ background: 'linear-gradient(90deg,var(--ref),var(--track),var(--cmp))' }} />loss</> : <>{fmtNum(lo, channel === 'gLat' ? 1 : 0)}<span className="bar" />{fmtNum(hi, channel === 'gLat' ? 1 : 0)} {unit}</>}
         </span>
@@ -213,6 +244,33 @@ export function TrackMap({ s, ref_, cmp, channel, zoom }: Props) {
       ) : (
         <p className="note" ref={wrapRef as React.RefObject<HTMLParagraphElement>}>No position data to draw a map.</p>
       )}
+      {map && (
+        <div className="map-key">
+          {cmp && <span><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="5" fill="var(--cmp)" /></svg>Compare · lap {cmp.lap.num}</span>}
+          <span>
+            <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">{cmp ? <circle cx="7" cy="7" r="5.5" fill="none" stroke="var(--ref)" strokeWidth="2.5" /> : <circle cx="7" cy="7" r="5.5" fill="var(--ref)" />}</svg>
+            Reference · lap {ref_.lap.num}
+          </span>
+          {channel !== 'delta' && <span className="faint">colour from {cmp ? 'compare' : 'reference'} lap</span>}
+        </div>
+      )}
+      {map && (() => {
+        const items = [
+          ...incidentsOnLap(s, ref_.lap).map((i) => ({ ...i, lap: ref_.lap.num, cls: 'ref' })),
+          ...(cmp ? incidentsOnLap(s, cmp.lap).map((i) => ({ ...i, lap: cmp.lap.num, cls: 'cmp' })) : []),
+        ];
+        if (!items.length) return null;
+        return (
+          <div className="incidents">
+            {items.map((i, k) => (
+              <button key={k} className="inc" onClick={() => seekDist(i.d)} title="Jump the playhead here">
+                <svg width="13" height="12" viewBox="0 0 18 16" aria-hidden="true"><path d="M9 0.8 17.2 15H0.8z" fill={`var(--${i.cls})`} /><text x="9" y="13" textAnchor="middle" fontSize="10" fontWeight="700" fill="#fff">!</text></svg>
+                Lap {i.lap}: {i.count}x incident at {Math.round(i.d)} m
+              </button>
+            ))}
+          </div>
+        );
+      })()}
       <p className="note">
         {map?.method === 'gps'
           ? 'Drawn from GPS on the fastest lap.'

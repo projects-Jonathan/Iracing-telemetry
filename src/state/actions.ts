@@ -1,16 +1,14 @@
 import type { Session } from '../types';
 import type { WorkerOut } from '../worker/parse.worker';
 import { app, setApp, cursor, playT } from './store';
-import { listSessions, loadSession, saveSession, deleteSession } from './db';
 import { distLap, distAtTime, type DistLap } from '../analysis/lap';
 import { bestLap } from '../analysis/session';
 
-export async function refreshLibrary() {
+/** Sessions are no longer kept in the browser; remove anything an older version stored. */
+export function clearOldStorage() {
   try {
-    setApp({ library: await listSessions() });
-  } catch {
-    /* storage unavailable (private window etc.) — the app still works without it */
-  }
+    for (const name of ['unison', 'lap-lens']) indexedDB.deleteDatabase(name);
+  } catch { /* IndexedDB unavailable — nothing to clear */ }
 }
 
 function parseInWorker(file: File): Promise<Session> {
@@ -50,41 +48,35 @@ export async function openFiles(files: File[]) {
         continue;
       }
       last = s;
-      try {
-        await saveSession(s);
-      } catch {
-        setApp({ notice: 'This session could not be saved in the browser (storage full or blocked). It will be gone after a reload.' });
-      }
     } catch (e) {
       errors.push(`${f.name}: ${(e as Error).message}`);
     }
   }
   setApp({ loading: null, error: errors.length ? errors.join('\n') : null });
   if (last) activate(last);
-  refreshLibrary();
 }
 
-export async function openSaved(id: string) {
-  setApp({ loading: { name: 'Saved session', stage: 'Loading', p: 1 } });
+/** Load the bundled demo session (a few real laps). */
+export async function openDemo() {
+  setApp({ error: null, loading: { name: 'Demo session', stage: 'Downloading demo', p: 0.3 } });
   try {
-    const s = await loadSession(id);
-    setApp({ loading: null });
-    if (s) activate(s);
-    else setApp({ error: 'That saved session could not be found.' });
+    const res = await fetch(new URL('demo/session.bin', document.baseURI));
+    if (!res.ok) throw new Error(`Demo download failed (${res.status})`);
+    const [{ gunzipSync }, { decodeDemo }] = await Promise.all([import('fflate'), import('./demoFormat')]);
+    const s = decodeDemo(gunzipSync(new Uint8Array(await res.arrayBuffer())));
+    setApp({
+      loading: null,
+      notice: `You're viewing a demo: ${s.laps.length} real laps of ${s.track} in an ${s.car}. Press play, hover the charts, or drop your own .ibt / SimHub file to analyse it.`,
+    });
+    activate(s);
   } catch (e) {
     setApp({ loading: null, error: (e as Error).message });
   }
 }
 
-export async function removeSaved(id: string) {
-  await deleteSession(id);
-  if (app.get().session?.id === id) closeSession();
-  refreshLibrary();
-}
-
 export function closeSession() {
   stop();
-  setApp({ session: null, refLap: null, cmpLap: null, zoom: null });
+  setApp({ session: null, refLap: null, cmpLap: null, zoom: null, notice: null });
 }
 
 function activate(s: Session) {

@@ -13,6 +13,8 @@ interface Props {
   cmp: DistLap | null;
   panels: string[];
   zoom: [number, number] | null;
+  /** total chart height to fill (CSS px), or null for natural panel heights */
+  fitHeight?: number | null;
 }
 
 interface PanelGeo {
@@ -40,7 +42,7 @@ function panelHeight(key: string): number {
   return 104;
 }
 
-export function Chart({ s, ref_, cmp, panels, zoom }: Props) {
+export function Chart({ s, ref_, cmp, panels, zoom, fitHeight = null }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const baseRef = useRef<HTMLCanvasElement>(null);
   const overRef = useRef<HTMLCanvasElement>(null);
@@ -91,8 +93,24 @@ export function Chart({ s, ref_, cmp, panels, zoom }: Props) {
       });
       y += TITLE + h + GAP;
     }
+    // Stretch (or shrink, to 60% at most) the panels so the chart fills the requested height.
+    if (fitHeight && out.length) {
+      const fixed = CORNER_ROW + AXIS + out.length * (TITLE + GAP);
+      const natural = out.reduce((t, p) => t + p.h, 0);
+      const scale = Math.max(0.6, (fitHeight - fixed) / natural);
+      let top = CORNER_ROW;
+      for (const p of out) {
+        p.h = Math.floor(p.h * scale);
+        p.top = top + TITLE;
+        top += TITLE + p.h + GAP;
+      }
+      // give rounding leftovers to the last panel so the total is exact
+      const spare = fitHeight - (top + AXIS);
+      if (spare > 0) { out[out.length - 1].h += spare; top += spare; }
+      y = top;
+    }
     return { panels: out, height: y + AXIS };
-  }, [s, ref_, cmp, panels, d0, d1]);
+  }, [s, ref_, cmp, panels, d0, d1, fitHeight]);
 
   const plotW = Math.max(10, width - ML - MR);
   const xOf = (d: number) => ML + ((d - d0) / (d1 - d0)) * plotW;
@@ -168,15 +186,22 @@ export function Chart({ s, ref_, cmp, panels, zoom }: Props) {
           ctx.fillStyle = colors.ink;
           ctx.fillText(text, rx, ty);
           rx -= ctx.measureText(text).width + 4;
-          if (col) { ctx.fillStyle = col; ctx.fillRect(rx - 10, ty - 5, 10, 3); rx -= 18; }
+          if (col) {
+            ctx.fillStyle = col;
+            // swatch matches the trace: reference dashed when a compare lap is shown
+            if (col === colors.ref && p.b) { ctx.fillRect(rx - 10, ty - 5, 4, 3); ctx.fillRect(rx - 4, ty - 5, 4, 3); }
+            else ctx.fillRect(rx - 10, ty - 5, 10, 3);
+            rx -= 18;
+          }
         };
         const unit = p.unit ? ` ${p.unit}` : '';
         if (p.delta) {
           put(`${va > 0 ? '+' : ''}${fmtNum(va, 3)}${unit}`, null);
         } else {
           const f = (v: number) => (p.stepped ? fmtNum(v, 0) : fmtNum(v, p.dp));
-          if (p.b) { put(`${f(vb)}${unit}`, colors.cmp); }
-          put(`${f(va)}${p.b ? '' : unit}`, colors.ref);
+          // drawn right-to-left, so this reads "compare, reference" on screen
+          put(`${f(va)}${unit}`, colors.ref);
+          if (p.b) put(f(vb), colors.cmp);
         }
       }
     };
@@ -340,8 +365,9 @@ function drawBase(ctx: CanvasRenderingContext2D, panels: PanelGeo[], c: Colors, 
     };
     if (p.delta && p.a) trace(p.a, c.cmp, []);
     else {
-      if (p.b) trace(p.b, c.cmp, [5, 2]);
-      if (p.a) trace(p.a, c.ref, []);
+      // reference dashed underneath, compare (the lap being analysed) solid on top
+      if (p.a) trace(p.a, c.ref, p.b ? [5, 2] : []);
+      if (p.b) trace(p.b, c.cmp, []);
     }
     ctx.restore();
   }
