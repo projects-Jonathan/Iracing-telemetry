@@ -1,4 +1,4 @@
-import type { Session } from '../types';
+import type { Note, NoteKind, Session } from '../types';
 import type { WorkerOut } from '../worker/parse.worker';
 import { app, setApp, cursor, playT } from './store';
 import { distLap, distAtTime, type DistLap } from '../analysis/lap';
@@ -76,7 +76,7 @@ export async function openDemo() {
 
 export function closeSession() {
   stop();
-  setApp({ session: null, refLap: null, cmpLap: null, zoom: null, notice: null });
+  setApp({ session: null, refLap: null, cmpLap: null, zoom: null, notice: null, notes: [], notesDirty: false, noteEdit: null, noteMode: false });
 }
 
 function activate(s: Session) {
@@ -88,7 +88,7 @@ function activate(s: Session) {
     .map((l, i) => ({ l, i }))
     .filter(({ l, i }) => l.complete && i !== refLap)
     .sort((a, b) => (a.l.time as number) - (b.l.time as number));
-  setApp({ session: s, refLap, cmpLap: ranked[0]?.i ?? null, zoom: null });
+  setApp({ session: s, refLap, cmpLap: ranked[0]?.i ?? null, zoom: null, notes: normaliseNotes(s.notes), notesDirty: false, noteEdit: null, noteMode: false });
   playT.set(0);
   syncCursorToTime(0);
 }
@@ -114,6 +114,8 @@ export function syncCursorToTime(t: number, hover = false) {
 }
 
 export function syncCursorToDist(d: number, hover: boolean) {
+  // while the lap is playing, hovering the graph or map doesn't move the cursor off the playhead
+  if (hover && app.get().playing) return;
   const { ref, cmp } = currentLaps();
   if (!ref) return;
   const k = Math.max(0, Math.min(ref.n - 1, d / ref.step));
@@ -123,6 +125,12 @@ export function syncCursorToDist(d: number, hover: boolean) {
 }
 
 export function endHover() {
+  // In note (edit) mode the line stays where the mouse left the graph, and that becomes the playhead.
+  if (app.get().noteMode && cursor.get().hover) {
+    playT.set(cursor.get().t);
+    cursor.set({ ...cursor.get(), hover: false });
+    return;
+  }
   syncCursorToTime(playT.get());
 }
 
@@ -164,12 +172,14 @@ export function playRange(): [number, number] {
 }
 
 /** Zoom the graph (null = whole lap). Pauses playback and keeps the playhead inside the new range. */
-export function setZoom(zoom: [number, number] | null) {
+export function setZoom(zoom: [number, number] | null, opts: { toStart?: boolean } = {}) {
   stop();
   setApp({ zoom });
   const [t0, t1] = playRange();
   const t = playT.get();
-  if (t < t0 || t > t1) seekTime(t0);
+  // toStart: a drag-selected section always starts playback from its beginning.
+  // Otherwise (e.g. back to the whole lap) the playhead stays put unless it falls outside the view.
+  if (opts.toStart || t < t0 || t > t1) seekTime(t0);
 }
 
 function tick(ts: number) {
@@ -185,7 +195,7 @@ function tick(ts: number) {
     return;
   }
   playT.set(t);
-  if (!cursor.get().hover) syncCursorToTime(t);
+  syncCursorToTime(t);
   raf = requestAnimationFrame(tick);
 }
 
@@ -195,6 +205,7 @@ export function play() {
   // restart from the beginning of the range if at (or outside) its end
   if (playT.get() >= end - 0.01 || playT.get() < start) playT.set(start);
   setApp({ playing: true });
+  syncCursorToTime(playT.get()); // drop any hover position so the cursor follows playback
   lastTs = 0;
   raf = requestAnimationFrame(tick);
 }
@@ -236,7 +247,8 @@ export async function exportLaps(indices: number[]) {
   await new Promise((r) => setTimeout(r, 30));
   try {
     const { sliceLaps, encodeUnison, exportFileName } = await import('./exportFormat');
-    const sub = sliceLaps(s, indices);
+    // notes travel with the exported laps
+    const sub = { ...sliceLaps(s, indices), notes: app.get().notes };
     const bytes = encodeUnison(sub);
     const name = exportFileName(s, sub.laps.map((l) => l.num));
     const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'application/octet-stream' }));
@@ -248,8 +260,41 @@ export async function exportLaps(indices: number[]) {
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 10_000);
     const kb = bytes.length / 1024;
-    setApp({ loading: null, exportOpen: false, notice: `Exported ${sub.laps.length} lap${sub.laps.length > 1 ? 's' : ''} to "${name}" (${kb > 1024 ? `${(kb / 1024).toFixed(1)} MB` : `${Math.round(kb)} KB`}). Open it here any time to see just those laps.` });
+    setApp({ loading: null, exportOpen: false, notesDirty: false, notice: `Exported ${sub.laps.length} lap${sub.laps.length > 1 ? 's' : ''} to "${name}" (${kb > 1024 ? `${(kb / 1024).toFixed(1)} MB` : `${Math.round(kb)} KB`}). Open it here any time to see just those laps.` });
   } catch (e) {
     setApp({ loading: null, error: `Export failed: ${(e as Error).message}` });
   }
+}
+
+// ---- notes ----------------------------------------------------------------
+
+/** Open the note editor: a new note at distance `d`, or an existing note. */
+export function editNote(target: { d: number } | Note) {
+  if ('id' in target) setApp({ noteEdit: { id: target.id, d: target.d, kind: target.kind, text: target.text, where: target.where } });
+  else setApp({ noteEdit: { d: target.d, kind: 'reference', text: '' } });
+}
+
+/** Graph-only mode for adding notes by clicking: playback stops and other panels are hidden. */
+export function setNoteMode(on: boolean) {
+  stop();
+  setApp({ noteMode: on, zoom: on ? null : app.get().zoom, notesHidden: on ? false : app.get().notesHidden, noteEdit: null });
+  if (on) window.scrollTo({ top: 0 });
+}
+
+export function saveNote(n: { id?: string; d: number; kind: NoteKind; text: string; where: string }) {
+  const notes = app.get().notes;
+  const d = Math.max(0, Math.min(app.get().session?.trackLength ?? n.d, n.d));
+  const next = n.id
+    ? notes.map((x) => (x.id === n.id ? { ...x, d, kind: n.kind, text: n.text, where: n.where } : x))
+    : [...notes, { id: `n${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, d, kind: n.kind, text: n.text, where: n.where }];
+  setApp({ notes: next.sort((a, b) => a.d - b.d), notesDirty: true, noteEdit: null });
+}
+
+export function deleteNote(id: string) {
+  setApp({ notes: app.get().notes.filter((x) => x.id !== id), notesDirty: true, noteEdit: null });
+}
+
+/** Older files used Brake/Acceleration/Other types; those all become plain notes now. */
+function normaliseNotes(notes: Note[] | undefined): Note[] {
+  return (notes ?? []).map((n) => (n.kind === 'reference' || n.kind === 'note' ? n : { ...n, kind: 'note' as NoteKind }));
 }

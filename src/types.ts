@@ -36,6 +36,21 @@ export interface Session {
   map: TrackMap | null;
   addedAt: number;
   fileSize: number;
+  /** user notes pinned to track positions (only kept inside .unison exports) */
+  notes?: Note[];
+}
+
+export type NoteKind = 'reference' | 'note';
+
+/** A user note at a point on the track, independent of any lap. */
+export interface Note {
+  id: string;
+  /** lap distance, metres */
+  d: number;
+  kind: NoteKind;
+  text: string;
+  /** where on track, e.g. "C4" or "Between C4 & C5" (auto-suggested, editable) */
+  where?: string;
 }
 
 export interface TrackMap {

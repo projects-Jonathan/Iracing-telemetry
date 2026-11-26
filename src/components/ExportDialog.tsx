@@ -10,6 +10,7 @@ export function ExportDialog({ s }: { s: Session }) {
   const refLap = useApp((a) => a.refLap);
   const cmpLap = useApp((a) => a.cmpLap);
   const busy = useApp((a) => a.loading?.name === 'Export');
+  const notes = useApp((a) => a.notes);
   const [picked, setPicked] = useState<Set<number>>(new Set());
   const dialog = useRef<HTMLDivElement>(null);
 
@@ -41,6 +42,11 @@ export function ExportDialog({ s }: { s: Session }) {
         <p className="muted" style={{ margin: 0, fontSize: 13 }}>
           Tick the laps to keep. They're saved as a <strong>.unison</strong> file with all their data. Open it here later to see just those laps.
         </p>
+        {notes.length > 0 && (
+          <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+            Your {notes.length} note{notes.length === 1 ? '' : 's'} {notes.length === 1 ? 'is' : 'are'} saved in the file too.
+          </p>
+        )}
         <div className="row-actions">
           <button className="btn" onClick={() => setPicked(new Set(laps.map(({ i }) => i)))}>Select all</button>
           <button className="btn" onClick={() => setPicked(new Set())}>Select none</button>

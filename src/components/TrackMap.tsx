@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react';
-import type { Session } from '../types';
+import type { Note, Session } from '../types';
 import { channelOn, incidentsOnLap, type DistLap } from '../analysis/lap';
 import { cornersFor } from '../analysis/corners';
 import { cursor, setApp } from '../state/store';
@@ -12,6 +12,7 @@ interface Props {
   cmp: DistLap | null;
   channel: string;
   zoom: [number, number] | null;
+  notes?: Note[];
 }
 
 interface View { z: number; cx: number; cy: number }
@@ -21,7 +22,7 @@ const MAP_CHANNELS: [string, string][] = [
   ['speed', 'Speed'], ['throttle', 'Throttle'], ['brake', 'Brake'], ['gear', 'Gear'], ['gLat', 'Lateral G'], ['steer', 'Steering'], ['delta', 'Time gained/lost'],
 ];
 
-export function TrackMap({ s, ref_, cmp, channel, zoom }: Props) {
+export function TrackMap({ s, ref_, cmp, channel, zoom, notes = [] }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const baseRef = useRef<HTMLCanvasElement>(null);
   const overRef = useRef<HTMLCanvasElement>(null);
@@ -173,6 +174,28 @@ export function TrackMap({ s, ref_, cmp, channel, zoom }: Props) {
       const nx = (clockwise ? ty : -ty) / m, ny = (clockwise ? -tx : tx) / m;
       ctx.fillText(c.name, x + nx * 17, y + ny * 17);
     }
+    // note pins: numbered, on the inside of the loop (corner labels are outside)
+    notes.forEach((nt, i) => {
+      const k = nt.d / map.step;
+      const [x, y] = pt(k);
+      const [xa, ya] = pt((k - span + n) % n), [xb, yb] = pt((k + span) % n);
+      const tx = xb - xa, ty = yb - ya, m = Math.hypot(tx, ty) || 1;
+      const nx = -(clockwise ? ty : -ty) / m, ny = -(clockwise ? -tx : tx) / m;
+      const px = x + nx * 20, py = y + ny * 20;
+      ctx.strokeStyle = colors.ink; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(px, py); ctx.stroke();
+      // small "n1" tag, same label as on the graph
+      const label = `n${i + 1}`;
+      ctx.font = `700 10px ${getComputedStyle(document.body).getPropertyValue('--mono')}`;
+      const w = ctx.measureText(label).width + 8;
+      ctx.beginPath(); ctx.roundRect(px - w / 2, py - 8, w, 16, 4);
+      ctx.fillStyle = colors.ink; ctx.fill();
+      ctx.lineWidth = 2; ctx.strokeStyle = colors.surface; ctx.stroke();
+      ctx.fillStyle = colors.surface;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(label, px, py + 0.5);
+    });
+    ctx.font = `500 10px ${getComputedStyle(document.body).getPropertyValue('--mono')}`;
     const cx = width / 2, cy = height / 2;
     // incident markers: warning triangle in the lap's colour, with the count beside it
     const mark = (d: number, count: number, col: string, side: number) => {
@@ -196,7 +219,7 @@ export function TrackMap({ s, ref_, cmp, channel, zoom }: Props) {
     if (cmp) for (const i of incidentsOnLap(s, cmp.lap)) mark(i.d, i.count, colors.cmp, -1);
     for (const i of incidentsOnLap(s, ref_.lap)) mark(i.d, i.count, colors.ref, 1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [proj, width, height, colors, values, range, zoom, s, ref_, cmp, view]);
+  }, [proj, width, height, colors, values, range, zoom, s, ref_, cmp, view, notes]);
 
   // ---- overlay: car positions ----
   useEffect(() => {

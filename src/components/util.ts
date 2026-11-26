@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState, type RefObject } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { useApp } from '../state/store';
 
 export interface Colors {
   bg: string; surface: string; ink: string; ink2: string; ink3: string; grid: string; rule: string;
-  track: string; ref: string; cmp: string; seqLo: string; seqHi: string; gain: string; loss: string;
+  track: string; ref: string; cmp: string; seqLo: string; seqHi: string; gain: string; loss: string; note: string; noteInk: string;
 }
 
 /** Read the colour tokens in effect on `el` (defaults to the page root, i.e. the current theme). */
@@ -13,7 +13,7 @@ export function readColors(el: Element = document.documentElement): Colors {
   return {
     bg: v('--bg'), surface: v('--surface'), ink: v('--ink'), ink2: v('--ink-2'), ink3: v('--ink-3'),
     grid: v('--grid'), rule: v('--rule'), track: v('--track'), ref: v('--ref'), cmp: v('--cmp'),
-    seqLo: v('--seq-lo'), seqHi: v('--seq-hi'), gain: v('--gain'), loss: v('--loss'),
+    seqLo: v('--seq-lo'), seqHi: v('--seq-hi'), gain: v('--gain'), loss: v('--loss'), note: v('--note'), noteInk: v('--note-ink'),
   };
 }
 
@@ -100,20 +100,6 @@ export function seqColor(lo: string, hi: string, f: number): string {
   return `rgb(${Math.round(a[0] + (b[0] - a[0]) * t)},${Math.round(a[1] + (b[1] - a[1]) * t)},${Math.round(a[2] + (b[2] - a[2]) * t)})`;
 }
 
-/** Rendered height of an element, kept up to date. */
-export function useHeight(ref: RefObject<HTMLElement | null>): number {
-  const [h, setH] = useState(0);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const ro = new ResizeObserver(() => setH(el.getBoundingClientRect().height));
-    ro.observe(el);
-    setH(el.getBoundingClientRect().height);
-    return () => ro.disconnect();
-  }, [ref]);
-  return h;
-}
-
 /** True while a CSS media query matches. */
 export function useMedia(query: string): boolean {
   const [m, setM] = useState(() => window.matchMedia(query).matches);
@@ -125,4 +111,24 @@ export function useMedia(query: string): boolean {
     return () => mq.removeEventListener('change', on);
   }, [query]);
   return m;
+}
+
+/**
+ * Height of an element via a callback ref: re-attaches whenever React mounts a new element,
+ * so the value never goes stale if the element is removed and recreated.
+ */
+export function useMeasuredHeight<T extends HTMLElement>(): [(el: T | null) => void, number] {
+  const [h, setH] = useState(0);
+  const observer = useRef<ResizeObserver | null>(null);
+  const attach = useCallback((el: T | null) => {
+    observer.current?.disconnect();
+    observer.current = null;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setH(el.getBoundingClientRect().height));
+    ro.observe(el);
+    observer.current = ro;
+    setH(el.getBoundingClientRect().height);
+  }, []);
+  useEffect(() => () => observer.current?.disconnect(), []);
+  return [attach, h];
 }

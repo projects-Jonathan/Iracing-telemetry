@@ -3,12 +3,15 @@ import { createPortal } from 'react-dom';
 import { setApp, useApp } from '../state/store';
 import { currentLaps } from '../state/actions';
 import { Chart } from './Chart';
+import { CornerTable } from './Tables';
 import { fmtDelta, fmtDist, fmtLap, readColors, type Colors } from './util';
 
 /**
- * Printable copy of the graph: one landscape page, light colours, high-resolution canvas.
- * Page content box is A4 landscape minus 10 mm margins: 277 × 190 mm ≈ 1047 × 718 CSS px.
- * The printout scales down to fit other paper sizes (see @media print in styles.css).
+ * Printout, two pages:
+ *   1. landscape — the graph (note lines kept, sector lines left out), light colours, high-res canvas.
+ *      Content box is A4 landscape minus 10 mm margins: 277 × 190 mm ≈ 1047 × 718 CSS px.
+ *   2. portrait — the Corners table with its data and notes (incl. between-corner rows).
+ * Page sizes come from named @page rules in styles.css.
  */
 const PAGE_W = 1047;
 const PAGE_H = 718;
@@ -18,6 +21,10 @@ export function PrintSheet() {
   const printing = useApp((a) => a.printing);
   const panels = useApp((a) => a.panels);
   const zoom = useApp((a) => a.zoom);
+  const allNotes = useApp((a) => a.notes);
+  const notesHidden = useApp((a) => a.notesHidden);
+  // the printout is a copy of the graph, so it follows the graph's show/hide setting
+  const notes = notesHidden ? [] : allNotes;
   const sheet = useRef<HTMLDivElement>(null);
   const [colors, setColors] = useState<Colors | null>(null);
   // true once the chart has actually painted its traces — the dialog must not open before this
@@ -43,17 +50,21 @@ export function PrintSheet() {
   const { s, ref, cmp } = currentLaps();
   if (!s || !ref) return null;
   const gap = cmp && cmp.lap.time !== null && ref.lap.time !== null ? cmp.lap.time - ref.lap.time : null;
+  const key = (range: string) => (
+    <div className="print-key">
+      <strong>{s.track}{s.trackConfig ? ` · ${s.trackConfig}` : ''}</strong>
+      <span>{s.car}</span>
+      {cmp && <span><i className="sw cmp" /> Compare · lap {cmp.lap.num} · {fmtLap(cmp.lap.time)}</span>}
+      <span><i className="sw ref" /> Reference · lap {ref.lap.num} · {fmtLap(ref.lap.time)}</span>
+      {gap !== null && <span>Gap {fmtDelta(gap)} s</span>}
+      <span className="print-range">{range}</span>
+    </div>
+  );
 
   return createPortal(
-    <div className="print-sheet force-light" ref={sheet} style={{ width: PAGE_W }}>
-      <div className="print-key">
-        <strong>{s.track}{s.trackConfig ? ` · ${s.trackConfig}` : ''}</strong>
-        <span>{s.car}</span>
-        {cmp && <span><i className="sw cmp" /> Compare · lap {cmp.lap.num} · {fmtLap(cmp.lap.time)}</span>}
-        <span><i className="sw ref" /> Reference · lap {ref.lap.num} · {fmtLap(ref.lap.time)}</span>
-        {gap !== null && <span>Gap {fmtDelta(gap)} s</span>}
-        <span className="print-range">{zoom ? `${fmtDist(zoom[0])} – ${fmtDist(zoom[1])}` : 'Full lap'}</span>
-      </div>
+    <div className="print-sheet force-light" ref={sheet}>
+      <section className="print-page print-landscape" style={{ width: PAGE_W }}>
+      {key(zoom ? `${fmtDist(zoom[0])} – ${fmtDist(zoom[1])}` : 'Full lap')}
       {colors && (
         <Chart
           s={s}
@@ -62,6 +73,8 @@ export function PrintSheet() {
           panels={panels}
           zoom={zoom}
           fitHeight={PAGE_H - KEY_H}
+          notes={notes}
+          hideSectors
           minScale={0.25}
           colorsOverride={colors}
           pixelRatio={3}
@@ -70,6 +83,11 @@ export function PrintSheet() {
           onDrawn={() => setDrawn(true)}
         />
       )}
+      </section>
+      <section className="print-page print-portrait">
+        {key('Whole lap')}
+        <CornerTable s={s} ref_={ref} cmp={cmp} print />
+      </section>
     </div>,
     document.body,
   );

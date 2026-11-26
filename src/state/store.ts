@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import type { Session } from '../types';
+import type { Note, NoteKind, Session } from '../types';
 
 /** Minimal observable value. */
 export class Signal<T> {
@@ -42,6 +42,16 @@ export interface AppState {
   printing: boolean;
   /** lap-export dialog open */
   exportOpen: boolean;
+  /** notes for the open session */
+  notes: Note[];
+  /** notes changed since the file was opened or last exported */
+  notesDirty: boolean;
+  /** note being added/edited (id undefined = new) */
+  noteEdit: { id?: string; d: number; kind: NoteKind; text: string; where?: string } | null;
+  /** graph-only "click to add notes" mode (playback and other panels hidden) */
+  noteMode: boolean;
+  /** note markers hidden on the graph */
+  notesHidden: boolean;
   rate: number;
 }
 
@@ -75,6 +85,11 @@ export const app = new Signal<AppState>({
   playing: false,
   printing: false,
   exportOpen: false,
+  notes: [],
+  notesDirty: false,
+  noteEdit: null,
+  noteMode: false,
+  notesHidden: false,
   rate: 1,
 });
 

@@ -12,6 +12,8 @@ export function App() {
   const error = useApp((s) => s.error);
   const notice = useApp((s) => s.notice);
   const theme = useApp((s) => s.theme);
+  const notesDirty = useApp((s) => s.notesDirty);
+  const noteMode = useApp((s) => s.noteMode);
   const input = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
 
@@ -42,7 +44,11 @@ export function App() {
           </button>
         )}
         {session && (
-          <button className="btn" onClick={() => { stop(); setApp({ exportOpen: true }); }} title="Save chosen laps to a .unison file">
+          <button
+            className={`btn ${notesDirty ? 'btn-warn' : ''}`}
+            onClick={() => { stop(); setApp({ exportOpen: true }); }}
+            title={notesDirty ? 'You have unsaved notes. Export to a .unison file to keep them; they are lost if you leave or reload.' : 'Save chosen laps to a .unison file'}
+          >
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 2v8m0 0L5 7m3 3 3-3M2.5 11v1.5A1.5 1.5 0 0 0 4 14h8a1.5 1.5 0 0 0 1.5-1.5V11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
             Export
           </button>
@@ -56,7 +62,7 @@ export function App() {
       </nav>
       <main className="page">
         {error && <div className="banner error" role="alert"><span>{error}</span><button className="btn ghost close" onClick={() => setApp({ error: null })} aria-label="Dismiss">✕</button></div>}
-        {notice && <div className="banner" role="status"><span>{notice}</span><button className="btn ghost close" onClick={() => setApp({ notice: null })} aria-label="Dismiss">✕</button></div>}
+        {notice && !noteMode && <div className="banner" role="status"><span>{notice}</span><button className="btn ghost close" onClick={() => setApp({ notice: null })} aria-label="Dismiss">✕</button></div>}
         {session ? <SessionView s={session} /> : <Home />}
       </main>
       <PrintSheet />

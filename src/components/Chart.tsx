@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { Session } from '../types';
+import type { Note, Session } from '../types';
 import { channelOn, deltaOn, valueAtDist, type DistLap } from '../analysis/lap';
 import { cornersFor } from '../analysis/corners';
 import { CANON_BY_KEY } from '../parsers/channels';
+import { NOTE_KINDS } from '../analysis/notes';
+
+const KIND_LABEL = Object.fromEntries(NOTE_KINDS.map((k) => [k.kind, k.label])) as Record<Note['kind'], string>;
 import { cursor } from '../state/store';
 import { endHover, seekDist, setZoom, syncCursorToDist } from '../state/actions';
 import { fmtDist, fmtNum, prepCanvas, ticks, useColors, useWidth, type Colors } from './util';
@@ -24,6 +27,12 @@ interface Props {
   fixedWidth?: number;
   /** called after the traces have been drawn */
   onDrawn?: () => void;
+  /** user notes to mark along the top of the graph (numbered in track order) */
+  notes?: Note[];
+  /** note mode: a click picks a spot (or the note under the pointer) instead of moving the playhead; no drag-zoom */
+  onPick?: (d: number, existing: Note | null) => void;
+  /** leave out the dotted sector lines (note mode) */
+  hideSectors?: boolean;
 }
 
 interface PanelGeo {
@@ -41,7 +50,7 @@ interface PanelGeo {
   stepped: boolean;
 }
 
-const ML = 48, MR = 12, TITLE = 20, GAP = 8, AXIS = 24, CORNER_ROW = 16;
+const ML = 48, MR = 12, TITLE = 20, GAP = 8, AXIS = 24, CORNER_ROW = 16, NOTE_ROW = 20;
 const FIXED_PCT = new Set(['throttle', 'brake', 'clutch']);
 
 function panelHeight(key: string): number {
@@ -51,7 +60,8 @@ function panelHeight(key: string): number {
   return 104;
 }
 
-export function Chart({ s, ref_, cmp, panels, zoom, fitHeight = null, colorsOverride, pixelRatio, minScale = 0.6, staticOnly = false, fixedWidth, onDrawn }: Props) {
+export function Chart({ s, ref_, cmp, panels, zoom, fitHeight = null, colorsOverride, pixelRatio, minScale = 0.6, staticOnly = false, fixedWidth, onDrawn, notes = [], onPick, hideSectors = false }: Props) {
+  const topRow = CORNER_ROW + (notes.length ? NOTE_ROW : 0);
   const wrapRef = useRef<HTMLDivElement>(null);
   const baseRef = useRef<HTMLCanvasElement>(null);
   const overRef = useRef<HTMLCanvasElement>(null);
@@ -67,7 +77,7 @@ export function Chart({ s, ref_, cmp, panels, zoom, fitHeight = null, colorsOver
   const corners = useMemo(() => cornersFor(s, ref_), [s, ref_]);
 
   const geo = useMemo(() => {
-    let y = CORNER_ROW;
+    let y = topRow;
     const out: PanelGeo[] = [];
     const step = ref_.step;
     const k0 = Math.max(0, Math.floor(d0 / step)), k1 = Math.min(ref_.n - 1, Math.ceil(d1 / step));
@@ -106,10 +116,10 @@ export function Chart({ s, ref_, cmp, panels, zoom, fitHeight = null, colorsOver
     }
     // Stretch (or shrink, to 60% at most) the panels so the chart fills the requested height.
     if (fitHeight && out.length) {
-      const fixed = CORNER_ROW + AXIS + out.length * (TITLE + GAP);
+      const fixed = topRow + AXIS + out.length * (TITLE + GAP);
       const natural = out.reduce((t, p) => t + p.h, 0);
       const scale = Math.max(minScale, (fitHeight - fixed) / natural);
-      let top = CORNER_ROW;
+      let top = topRow;
       for (const p of out) {
         p.h = Math.floor(p.h * scale);
         p.top = top + TITLE;
@@ -121,7 +131,7 @@ export function Chart({ s, ref_, cmp, panels, zoom, fitHeight = null, colorsOver
       y = top;
     }
     return { panels: out, height: y + AXIS };
-  }, [s, ref_, cmp, panels, d0, d1, fitHeight, minScale]);
+  }, [s, ref_, cmp, panels, d0, d1, fitHeight, minScale, topRow]);
 
   const plotW = Math.max(10, width - ML - MR);
   const xOf = (d: number) => ML + ((d - d0) / (d1 - d0)) * plotW;
@@ -131,10 +141,10 @@ export function Chart({ s, ref_, cmp, panels, zoom, fitHeight = null, colorsOver
   useEffect(() => {
     const ctx = prepCanvas(baseRef.current, width, geo.height, pixelRatio);
     if (!ctx) return;
-    drawBase(ctx, geo.panels, colors, { width, height: geo.height, d0, d1, step: ref_.step, xOf, sectors: s.sectors.map((p) => p * L), corners: corners.map((c) => ({ name: c.name, d: c.apex * ref_.step })) });
+    drawBase(ctx, geo.panels, colors, { width, height: geo.height, d0, d1, step: ref_.step, xOf, sectors: hideSectors ? [] : s.sectors.map((p) => p * L), corners: corners.map((c) => ({ name: c.name, d: c.apex * ref_.step })), notes });
     onDrawn?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [geo, width, colors, d0, d1]);
+  }, [geo, width, colors, d0, d1, notes, hideSectors]);
 
   // ---- overlay: cursor, ghost, values, selection ----
   useEffect(() => {
@@ -147,7 +157,7 @@ export function Chart({ s, ref_, cmp, panels, zoom, fitHeight = null, colorsOver
         const xa = xOf(Math.min(sel[0], sel[1])), xb = xOf(Math.max(sel[0], sel[1]));
         ctx.fillStyle = colors.ink;
         ctx.globalAlpha = 0.08;
-        ctx.fillRect(xa, CORNER_ROW, xb - xa, geo.height - CORNER_ROW - AXIS);
+        ctx.fillRect(xa, topRow, xb - xa, geo.height - topRow - AXIS);
         ctx.globalAlpha = 1;
       }
       const last = geo.panels[geo.panels.length - 1];
@@ -161,6 +171,34 @@ export function Chart({ s, ref_, cmp, panels, zoom, fitHeight = null, colorsOver
         ctx.lineWidth = 1.5;
         ctx.beginPath(); ctx.moveTo(gx, yTop); ctx.lineTo(gx, yBot); ctx.stroke();
         ctx.setLineDash([]);
+      }
+      // note tooltip: hovering within a few pixels of a note marker shows its text
+      if (c.hover && notes.length) {
+        const hit = notes.map((n, i) => ({ n, i })).find(({ n }) => n.d >= d0 && n.d <= d1 && Math.abs(xOf(n.d) - xOf(c.d)) <= 7);
+        if (hit) {
+          ctx.font = '500 12px ' + getComputedStyle(document.body).getPropertyValue('--font');
+          const full = `n${hit.i + 1} · ${KIND_LABEL[hit.n.kind] ?? 'Note'}${hit.n.where ? ` · ${hit.n.where}` : ''}: ${hit.n.text}`;
+          const text = full.length > 90 ? full.slice(0, 88) + '…' : full;
+          const tw = ctx.measureText(text).width + 16;
+          const tx = Math.max(ML, Math.min(width - MR - tw, xOf(hit.n.d) - tw / 2));
+          const ty = CORNER_ROW + NOTE_ROW + 2;
+          ctx.fillStyle = colors.ink;
+          roundRect(ctx, tx, ty, tw, 24, 5); ctx.fill();
+          ctx.fillStyle = colors.surface;
+          ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+          ctx.fillText(text, tx + 8, ty + 12.5);
+          // note mode: the line is clickable to edit, so swap its "n2" label for a pen icon
+          if (onPick) {
+            const px = Math.round(xOf(hit.n.d)) + 0.5, py = CORNER_ROW + 8;
+            ctx.fillStyle = colors.surface;
+            ctx.fillRect(px - 13, CORNER_ROW, 26, 15);
+            drawPen(ctx, px, py, colors.noteInk);
+          }
+        }
+        // pointer cursor while over a note line in note mode
+        if (onPick && overRef.current) overRef.current.style.cursor = hit ? 'pointer' : 'copy';
+      } else if (onPick && overRef.current) {
+        overRef.current.style.cursor = 'copy';
       }
       if (c.d < d0 || c.d > d1) return;
       const x = xOf(c.d);
@@ -221,7 +259,7 @@ export function Chart({ s, ref_, cmp, panels, zoom, fitHeight = null, colorsOver
     draw();
     return cursor.subscribe(draw);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [geo, width, colors, d0, d1, sel]);
+  }, [geo, width, colors, d0, d1, sel, notes]);
 
   // ---- interaction ----
   const localX = (e: React.PointerEvent) => e.clientX - (e.currentTarget as HTMLElement).getBoundingClientRect().left;
@@ -232,7 +270,7 @@ export function Chart({ s, ref_, cmp, panels, zoom, fitHeight = null, colorsOver
   };
   const onMove = (e: React.PointerEvent) => {
     const x = localX(e);
-    if (drag.current) {
+    if (drag.current && !onPick) {
       if (Math.abs(x - drag.current.x0) > 5) drag.current.moved = true;
       if (drag.current.moved) setSel([dOf(drag.current.x0), dOf(x)]);
     }
@@ -243,9 +281,16 @@ export function Chart({ s, ref_, cmp, panels, zoom, fitHeight = null, colorsOver
     const dr = drag.current;
     drag.current = null;
     if (!dr) return;
+    if (onPick) {
+      // note mode: clicking on (or within a few px of) an existing note edits it; anywhere else adds one
+      const d = dOf(x);
+      const hit = notes.find((n) => n.d >= d0 && n.d <= d1 && Math.abs(xOf(n.d) - x) <= 7) ?? null;
+      onPick(hit ? hit.d : d, hit);
+      return;
+    }
     if (dr.moved) {
       const a = dOf(dr.x0), b = dOf(x);
-      if (Math.abs(b - a) > 20) setZoom([Math.min(a, b), Math.max(a, b)]);
+      if (Math.abs(b - a) > 20) setZoom([Math.min(a, b), Math.max(a, b)], { toStart: true });
       setSel(null);
     } else {
       seekDist(dOf(x));
@@ -262,10 +307,28 @@ export function Chart({ s, ref_, cmp, panels, zoom, fitHeight = null, colorsOver
         onPointerMove={onMove}
         onPointerUp={onUp}
         onPointerLeave={() => { if (!drag.current) endHover(); }}
-        onDoubleClick={() => setZoom(null)}
+        onDoubleClick={() => { if (!onPick) setZoom(null); }}
+        style={onPick ? { cursor: 'copy' } : undefined}
       />
     </div>
   );
+}
+
+/** Small pencil icon centred on (x, y), drawn diagonally. */
+function drawPen(ctx: CanvasRenderingContext2D, x: number, y: number, col: string) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate((3 * Math.PI) / 4); // tip down-left, like ✎
+  ctx.strokeStyle = col;
+  ctx.fillStyle = col;
+  ctx.lineWidth = 1.4;
+  ctx.lineJoin = 'round';
+  ctx.beginPath(); ctx.rect(-6, -2.2, 9, 4.4); ctx.stroke();          // barrel
+  ctx.beginPath(); ctx.moveTo(-6, -2.2); ctx.lineTo(-6, 2.2); ctx.lineWidth = 2.2; ctx.stroke(); // eraser end
+  ctx.beginPath(); ctx.moveTo(3, -2.2); ctx.lineTo(6.5, 0); ctx.lineTo(3, 2.2); ctx.closePath(); // tip
+  ctx.lineWidth = 1.4; ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(5.4, -0.7); ctx.lineTo(6.5, 0); ctx.lineTo(5.4, 0.7); ctx.closePath(); ctx.fill(); // lead
+  ctx.restore();
 }
 
 function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
@@ -287,6 +350,7 @@ interface BaseOpts {
   xOf: (d: number) => number;
   sectors: number[];
   corners: { name: string; d: number }[];
+  notes: Note[];
 }
 
 function drawBase(ctx: CanvasRenderingContext2D, panels: PanelGeo[], c: Colors, o: BaseOpts) {
@@ -302,6 +366,21 @@ function drawBase(ctx: CanvasRenderingContext2D, panels: PanelGeo[], c: Colors, 
   ctx.textAlign = 'center';
   ctx.textBaseline = 'top';
   for (const cn of o.corners) if (cn.d >= o.d0 && cn.d <= o.d1) ctx.fillText(cn.name, o.xOf(cn.d), 2);
+
+  // note markers: a tiny "n1" label above a dotted line running down through every panel
+  o.notes.forEach((n, i) => {
+    if (n.d < o.d0 || n.d > o.d1) return;
+    const x = Math.round(o.xOf(n.d)) + 0.5;
+    ctx.strokeStyle = c.note;
+    ctx.setLineDash([2, 3]);
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x, CORNER_ROW + 14); ctx.lineTo(x, yBot); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.font = `700 10px ${mono}`;
+    ctx.fillStyle = c.noteInk;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    ctx.fillText(`n${i + 1}`, x, CORNER_ROW + 2);
+  });
 
   // sector lines
   ctx.strokeStyle = c.ink3;
