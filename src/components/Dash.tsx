@@ -82,8 +82,8 @@ export function Dash({ s, refLap, cmpLap }: Props) {
       ctx.font = `500 9px ${getComputedStyle(document.body).getPropertyValue('--font')}`;
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText('BRAKE', cx, 6); ctx.fillText('ACCEL', cx, G_SIZE - 6);
-      ctx.textAlign = 'left'; ctx.fillText('R TURN', 1, cy - 8);
-      ctx.textAlign = 'right'; ctx.fillText('L TURN', G_SIZE - 1, cy - 8);
+      ctx.textAlign = 'center'; ctx.fillText('R', 6, cy);
+      ctx.fillText('L', G_SIZE - 6, cy);
       ctx.textAlign = 'center';
       ctx.fillText(`${gMax}g`, cx + gMax * k * 0.72 + 8, cy - gMax * k * 0.72);
       // whole-lap envelope, faint

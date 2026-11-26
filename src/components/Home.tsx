@@ -14,7 +14,7 @@ export function Home() {
       <div className="hero">
         <h1>See every lap you drive.</h1>
         <p className="muted" style={{ margin: 0 }}>
-          Drop in a telemetry file to compare laps, replay them with live G-forces, and find where the time is. Files are read in your browser and never uploaded.
+          Drop in a telemetry file to compare laps, replay them with live G-forces, and find where the time is.
         </p>
       </div>
 

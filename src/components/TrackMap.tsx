@@ -14,6 +14,9 @@ interface Props {
   zoom: [number, number] | null;
 }
 
+interface View { z: number; cx: number; cy: number }
+const MAX_Z = 16;
+
 const MAP_CHANNELS: [string, string][] = [
   ['speed', 'Speed'], ['throttle', 'Throttle'], ['brake', 'Brake'], ['gear', 'Gear'], ['gLat', 'Lateral G'], ['steer', 'Steering'], ['delta', 'Time gained/lost'],
 ];
@@ -51,11 +54,25 @@ export function TrackMap({ s, ref_, cmp, channel, zoom }: Props) {
   const PAD = 56; // room for corner labels around the outline
   const height = proj ? Math.max(160, Math.min(420, Math.round((width - PAD) * ((proj.y1 - proj.y0) / (proj.x1 - proj.x0 || 1))) + PAD)) : 160;
   const scale = proj ? Math.min((width - PAD) / (proj.x1 - proj.x0 || 1), (height - PAD) / (proj.y1 - proj.y0 || 1)) : 1;
-  const ox = proj ? (width - (proj.x1 - proj.x0) * scale) / 2 - proj.x0 * scale : 0;
-  const oy = proj ? (height - (proj.y1 - proj.y0) * scale) / 2 - proj.y0 * scale : 0;
+
+  // ---- view: follows the graph. Zooming the graph frames that stretch of track on the map;
+  // the full graph shows the whole track. There is no manual map zoom. ----
+  const view = useMemo((): View | null => {
+    if (!proj || !map || !zoom || width <= 0) return null;
+    const k0 = Math.max(0, Math.floor(zoom[0] / map.step)), k1 = Math.min(proj.px.length - 1, Math.ceil(zoom[1] / map.step));
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+    for (let k = k0; k <= k1; k++) {
+      x0 = Math.min(x0, proj.px[k]); x1 = Math.max(x1, proj.px[k]); y0 = Math.min(y0, proj.py[k]); y1 = Math.max(y1, proj.py[k]);
+    }
+    const z = Math.min((width - PAD) / ((x1 - x0 || 1) * scale), (height - PAD) / ((y1 - y0 || 1) * scale));
+    if (z <= 1.001) return null;
+    return { z: Math.min(MAX_Z, z), cx: (x0 + x1) / 2, cy: (y0 + y1) / 2 };
+  }, [zoom, proj, map, width, height, scale]);
+  const v: View = view ?? (proj ? { z: 1, cx: (proj.x0 + proj.x1) / 2, cy: (proj.y0 + proj.y1) / 2 } : { z: 1, cx: 0, cy: 0 });
   const pt = (k: number): [number, number] => {
-    const i = Math.max(0, Math.min((proj as NonNullable<typeof proj>).px.length - 1, Math.round(k)));
-    return [ox + (proj as NonNullable<typeof proj>).px[i] * scale, oy + (proj as NonNullable<typeof proj>).py[i] * scale];
+    const p = proj as NonNullable<typeof proj>;
+    const i = Math.max(0, Math.min(p.px.length - 1, Math.round(k)));
+    return [width / 2 + (p.px[i] - v.cx) * scale * v.z, height / 2 + (p.py[i] - v.cy) * scale * v.z];
   };
 
   // The compare lap is the one being analysed, so the map is coloured from it (reference only if there is no compare).
@@ -133,17 +150,30 @@ export function TrackMap({ s, ref_, cmp, channel, zoom }: Props) {
     };
     tick(0, 11, colors.ink, 3);
     s.sectors.slice(1).forEach((p) => tick((p * s.trackLength) / map.step, 8, colors.ink3, 1.5));
-    // corner labels, pushed off the track toward the outside of the shape
+    // Corner labels sit on the outside of the circuit loop: the driver's left on a clockwise
+    // track, right on an anticlockwise one. Direction comes from the outline's signed area
+    // (screen coords, y down: positive = clockwise as seen on screen).
+    let area = 0;
+    for (let k = 0; k < n; k++) {
+      const [x0, y0] = pt(k), [x1, y1] = pt((k + 1) % n);
+      area += x0 * y1 - x1 * y0;
+    }
+    const clockwise = area > 0;
     ctx.font = `500 10px ${getComputedStyle(document.body).getPropertyValue('--mono')}`;
     ctx.fillStyle = colors.ink2;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    const cx = width / 2, cy = height / 2;
+    const span = Math.max(2, Math.round(20 / map.step)); // tangent measured over ±20 m
     for (const c of cornersFor(s, ref_)) {
-      const [x, y] = pt((c.apex * ref_.step) / map.step);
-      const dx = x - cx, dy = y - cy, m = Math.hypot(dx, dy) || 1;
-      ctx.fillText(c.name, x + (dx / m) * 16, y + (dy / m) * 16);
+      const k = (c.apex * ref_.step) / map.step;
+      const [x, y] = pt(k);
+      const [xa, ya] = pt((k - span + n) % n), [xb, yb] = pt((k + span) % n);
+      const tx = xb - xa, ty = yb - ya, m = Math.hypot(tx, ty) || 1;
+      // left of travel on screen is (ty, -tx); right is (-ty, tx)
+      const nx = (clockwise ? ty : -ty) / m, ny = (clockwise ? -tx : tx) / m;
+      ctx.fillText(c.name, x + nx * 17, y + ny * 17);
     }
+    const cx = width / 2, cy = height / 2;
     // incident markers: warning triangle in the lap's colour, with the count beside it
     const mark = (d: number, count: number, col: string, side: number) => {
       const [x, y] = pt(d / map.step);
@@ -166,7 +196,7 @@ export function TrackMap({ s, ref_, cmp, channel, zoom }: Props) {
     if (cmp) for (const i of incidentsOnLap(s, cmp.lap)) mark(i.d, i.count, colors.cmp, -1);
     for (const i of incidentsOnLap(s, ref_.lap)) mark(i.d, i.count, colors.ref, 1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [proj, width, height, colors, values, range, zoom, s, ref_, cmp]);
+  }, [proj, width, height, colors, values, range, zoom, s, ref_, cmp, view]);
 
   // ---- overlay: car positions ----
   useEffect(() => {
@@ -202,7 +232,7 @@ export function TrackMap({ s, ref_, cmp, channel, zoom }: Props) {
     draw();
     return cursor.subscribe(draw);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [proj, width, height, colors]);
+  }, [proj, width, height, colors, view]);
 
   const nearest = (e: React.MouseEvent): number | null => {
     if (!proj || !map) return null;

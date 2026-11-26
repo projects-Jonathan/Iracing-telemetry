@@ -3,8 +3,8 @@ import type { Session } from '../types';
 import { channelOn, deltaOn, valueAtDist, type DistLap } from '../analysis/lap';
 import { cornersFor } from '../analysis/corners';
 import { CANON_BY_KEY } from '../parsers/channels';
-import { cursor, setApp } from '../state/store';
-import { endHover, seekDist, syncCursorToDist } from '../state/actions';
+import { cursor } from '../state/store';
+import { endHover, seekDist, setZoom, syncCursorToDist } from '../state/actions';
 import { fmtDist, fmtNum, prepCanvas, ticks, useColors, useWidth, type Colors } from './util';
 
 interface Props {
@@ -232,7 +232,7 @@ export function Chart({ s, ref_, cmp, panels, zoom, fitHeight = null }: Props) {
     if (!dr) return;
     if (dr.moved) {
       const a = dOf(dr.x0), b = dOf(x);
-      if (Math.abs(b - a) > 20) setApp({ zoom: [Math.min(a, b), Math.max(a, b)] });
+      if (Math.abs(b - a) > 20) setZoom([Math.min(a, b), Math.max(a, b)]);
       setSel(null);
     } else {
       seekDist(dOf(x));
@@ -249,7 +249,7 @@ export function Chart({ s, ref_, cmp, panels, zoom, fitHeight = null }: Props) {
         onPointerMove={onMove}
         onPointerUp={onUp}
         onPointerLeave={() => { if (!drag.current) endHover(); }}
-        onDoubleClick={() => setApp({ zoom: null })}
+        onDoubleClick={() => setZoom(null)}
       />
     </div>
   );

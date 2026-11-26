@@ -1,8 +1,8 @@
 import { useRef } from 'react';
 import type { Session } from '../types';
 import { useHeight, useMedia } from './util';
-import { setApp, useApp } from '../state/store';
-import { currentLaps } from '../state/actions';
+import { useApp } from '../state/store';
+import { currentLaps, setZoom } from '../state/actions';
 import { Toolbar } from './Toolbar';
 import { Chart } from './Chart';
 import { TrackMap } from './TrackMap';
@@ -54,9 +54,9 @@ export function SessionView({ s }: { s: Session }) {
           <div className="workspace">
             <section className="card chart-card" aria-label="Telemetry chart">
               <div className="chart-head" ref={headRef}>
-                <span className="hint">Hover to read values · drag to zoom · double-click to reset · click to move the playhead. The orange dashed line marks where the compare car is at the same moment.</span>
+                <span className="hint">Hover to read values · drag to zoom · double-click to reset · click to move the playhead.</span>
                 <ChannelPicker s={s} panels={panels} hasCmp={!!cmp} />
-                {zoom && <button className="btn full-graph" onClick={() => setApp({ zoom: null })}>Show full graph</button>}
+                {zoom && <button className="btn full-graph" onClick={() => setZoom(null)}>Show full graph</button>}
               </div>
               <Chart s={s} ref_={ref} cmp={cmp} panels={panels} zoom={zoom} fitHeight={fitHeight} />
             </section>
@@ -67,8 +67,8 @@ export function SessionView({ s }: { s: Session }) {
             </aside>
           </div>
           <div className="tables">
-            <LapTable s={s} />
             <CornerTable s={s} ref_={ref} cmp={cmp} />
+            <LapTable s={s} />
           </div>
         </>
       )}

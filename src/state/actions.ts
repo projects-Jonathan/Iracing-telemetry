@@ -95,7 +95,7 @@ function activate(s: Session) {
 
 export function selectLaps(refLap: number | null, cmpLap: number | null) {
   setApp({ refLap, cmpLap });
-  syncCursorToTime(playT.get());
+  seekTime(playT.get()); // re-clamps to the play range, which depends on the reference lap
 }
 
 /** Distance-grid laps for the current selection. */
@@ -126,9 +126,10 @@ export function endHover() {
   syncCursorToTime(playT.get());
 }
 
-/** Jump playback to a distance on the reference lap. */
+/** Jump playback to a distance on the reference lap (kept inside the zoomed section, if any). */
 export function seekDist(d: number) {
-  syncCursorToDist(d, false);
+  const z = app.get().zoom;
+  syncCursorToDist(z ? Math.max(z[0], Math.min(z[1], d)) : d, false);
   playT.set(cursor.get().t);
 }
 
@@ -143,13 +144,41 @@ function lapDuration(): number {
   return Math.max(ref.tm[ref.n - 1], cmp ? cmp.tm[cmp.n - 1] : 0);
 }
 
+/** Reference-lap elapsed time at a distance. */
+function refTimeAt(ref: DistLap, d: number): number {
+  const k = Math.max(0, Math.min(ref.n - 1, d / ref.step));
+  const i = Math.floor(k), f = k - i;
+  return i >= ref.n - 1 ? ref.tm[ref.n - 1] : ref.tm[i] + (ref.tm[i + 1] - ref.tm[i]) * f;
+}
+
+/**
+ * The stretch of time playback covers: the whole lap, or — when the graph is
+ * zoomed — the time the reference car takes to drive the zoomed section.
+ */
+export function playRange(): [number, number] {
+  const { ref } = currentLaps();
+  const zoom = app.get().zoom;
+  if (!ref) return [0, 0];
+  if (!zoom) return [0, lapDuration()];
+  return [refTimeAt(ref, zoom[0]), refTimeAt(ref, zoom[1])];
+}
+
+/** Zoom the graph (null = whole lap). Pauses playback and keeps the playhead inside the new range. */
+export function setZoom(zoom: [number, number] | null) {
+  stop();
+  setApp({ zoom });
+  const [t0, t1] = playRange();
+  const t = playT.get();
+  if (t < t0 || t > t1) seekTime(t0);
+}
+
 function tick(ts: number) {
   const dt = lastTs ? (ts - lastTs) / 1000 : 0;
   lastTs = ts;
-  const dur = lapDuration();
+  const [, end] = playRange();
   let t = playT.get() + dt * app.get().rate;
-  if (t >= dur) {
-    t = dur;
+  if (t >= end) {
+    t = end;
     playT.set(t);
     syncCursorToTime(t);
     stop();
@@ -162,7 +191,9 @@ function tick(ts: number) {
 
 export function play() {
   if (app.get().playing) return;
-  if (playT.get() >= lapDuration() - 0.01) playT.set(0);
+  const [start, end] = playRange();
+  // restart from the beginning of the range if at (or outside) its end
+  if (playT.get() >= end - 0.01 || playT.get() < start) playT.set(start);
   setApp({ playing: true });
   lastTs = 0;
   raf = requestAnimationFrame(tick);
@@ -178,12 +209,9 @@ export function togglePlay() {
 }
 
 export function seekTime(t: number) {
-  playT.set(Math.max(0, Math.min(lapDuration(), t)));
+  const [start, end] = playRange();
+  playT.set(Math.max(start, Math.min(end, t)));
   syncCursorToTime(playT.get());
-}
-
-export function getLapDuration() {
-  return lapDuration();
 }
 
 export function setTheme(theme: 'light' | 'dark') {

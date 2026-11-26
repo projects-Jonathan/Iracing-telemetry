@@ -1,8 +1,9 @@
 import { useEffect } from 'react';
 import type { Session } from '../types';
 import { playT, setApp, useApp, useSignal } from '../state/store';
-import { getLapDuration, seekTime, selectLaps, togglePlay } from '../state/actions';
+import { playRange, seekTime, selectLaps, togglePlay } from '../state/actions';
 import { fmtDelta, fmtLap } from './util';
+import { LapSelect } from './LapSelect';
 
 const RATES = [0.25, 0.5, 1, 2, 4];
 
@@ -12,7 +13,8 @@ export function Toolbar({ s }: { s: Session }) {
   const playing = useApp((a) => a.playing);
   const rate = useApp((a) => a.rate);
   const t = useSignal(playT);
-  const dur = getLapDuration();
+  useApp((a) => a.zoom); // re-render when the zoomed section (and so the play range) changes
+  const [start, end] = playRange();
 
   const options = s.laps.map((l, i) => ({ i, l })).filter(({ l }) => l.complete);
   const ref = refLap !== null ? s.laps[refLap] : null;
@@ -32,28 +34,28 @@ export function Toolbar({ s }: { s: Session }) {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  const label = (l: (typeof options)[number]['l']) => `Lap ${l.num} · ${fmtLap(l.time)}${l.incidents ? ` · ${l.incidents}x` : ''}`;
+  const times = options.map(({ l }) => l.time).filter((x): x is number => x !== null);
+  const best = times.length ? Math.min(...times) : null;
 
   return (
     <section className="card toolbar" aria-label="Lap selection and playback">
       {/* Compare is the lap being analysed, so it leads; Reference is the benchmark beside it. */}
-      <div className="ctl">
-        <label className="label" htmlFor="cmpSel">Compare</label>
-        <div className="row"><span className="sw cmp" />
-          <select id="cmpSel" value={cmpLap ?? ''} onChange={(e) => selectLaps(refLap, e.target.value === '' ? null : Number(e.target.value))}>
-            <option value="">None</option>
-            {options.filter(({ i }) => i !== refLap).map(({ i, l }) => <option key={i} value={i}>{label(l)}</option>)}
-          </select>
-        </div>
-      </div>
-      <div className="ctl">
-        <label className="label" htmlFor="refSel">Reference</label>
-        <div className="row"><span className="sw ref" />
-          <select id="refSel" value={refLap ?? ''} onChange={(e) => selectLaps(Number(e.target.value), cmpLap === Number(e.target.value) ? null : cmpLap)}>
-            {options.map(({ i, l }) => <option key={i} value={i}>{label(l)}</option>)}
-          </select>
-        </div>
-      </div>
+      <LapSelect
+        label="Compare"
+        kind="cmp"
+        value={cmpLap}
+        best={best}
+        options={[{ value: null, lap: null }, ...options.filter(({ i }) => i !== refLap).map(({ i, l }) => ({ value: i, lap: l }))]}
+        onChange={(v) => selectLaps(refLap, v)}
+      />
+      <LapSelect
+        label="Reference"
+        kind="ref"
+        value={refLap}
+        best={best}
+        options={options.map(({ i, l }) => ({ value: i, lap: l }))}
+        onChange={(v) => { if (v !== null) selectLaps(v, cmpLap === v ? null : cmpLap); }}
+      />
       <div className="stats">
         <div className="stat"><span className="label">Compare</span><span className="v">{fmtLap(cmp?.time)}</span></div>
         <div className="stat"><span className="label">Reference</span><span className="v">{fmtLap(ref?.time)}</span></div>
@@ -65,8 +67,8 @@ export function Toolbar({ s }: { s: Session }) {
             ? <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><rect x="2" y="1" width="3.5" height="12" rx="1" fill="currentColor" /><rect x="8.5" y="1" width="3.5" height="12" rx="1" fill="currentColor" /></svg>
             : <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M3 1.5v11a.6.6 0 0 0 .9.5l9-5.5a.6.6 0 0 0 0-1L3.9 1a.6.6 0 0 0-.9.5z" fill="currentColor" /></svg>}
         </button>
-        <input type="range" min={0} max={dur || 1} step={0.01} value={Math.min(t, dur)} onChange={(e) => seekTime(Number(e.target.value))} aria-label="Playback position" />
-        <span className="time">{fmtLap(t)} / {fmtLap(dur)}</span>
+        <input type="range" min={start} max={end || 1} step={0.01} value={Math.max(start, Math.min(t, end))} onChange={(e) => seekTime(Number(e.target.value))} aria-label="Playback position" />
+        <span className="time">{fmtLap(t)} / {fmtLap(end)}</span>
         <select aria-label="Playback speed" value={rate} onChange={(e) => setApp({ rate: Number(e.target.value) })}>
           {RATES.map((r) => <option key={r} value={r}>{r}×</option>)}
         </select>

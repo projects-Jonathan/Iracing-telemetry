@@ -2,8 +2,8 @@ import { useMemo } from 'react';
 import type { Session } from '../types';
 import { cornerStats, cornersFor } from '../analysis/corners';
 import type { DistLap } from '../analysis/lap';
-import { setApp, useApp } from '../state/store';
-import { seekDist, selectLaps } from '../state/actions';
+import { useApp } from '../state/store';
+import { seekDist, selectLaps, setZoom } from '../state/actions';
 import { fmtDelta, fmtLap, fmtNum } from './util';
 
 export function LapTable({ s }: { s: Session }) {
@@ -68,10 +68,6 @@ export function LapTable({ s }: { s: Session }) {
           </tbody>
         </table>
       </div>
-      <p className="note">
-        Underlined sector times are the best of the session; the theoretical best adds them together. Laps with pit visits, resets or replay jumps are listed but can't be compared.
-        {s.sectors.length > 1 ? ` Sectors use the sim's ${nSec} timing splits.` : ''}
-      </p>
     </section>
   );
 }
@@ -100,7 +96,7 @@ export function CornerTable({ s, ref_, cmp }: { s: Session; ref_: DistLap; cmp: 
             <tbody>
               {rows.map(({ c, a, b }) => a && (
                 <tr key={c.id} className="click" title="Click to zoom to this corner"
-                  onClick={() => { setApp({ zoom: [Math.max(0, c.entry * ref_.step - 40), Math.min(s.trackLength, c.exit * ref_.step + 40)] }); seekDist(a.apexDist); }}>
+                  onClick={() => { setZoom([Math.max(0, c.entry * ref_.step - 40), Math.min(s.trackLength, c.exit * ref_.step + 40)]); seekDist(a.apexDist); }}>
                   <td className="txt">{c.name}</td>
                   <td>{fmtNum(a.apexDist, 0)} m</td>
                   <td>{a.brakeDist !== null ? `${fmtNum(a.brakeDist, 0)} m` : 'lift'}</td>
