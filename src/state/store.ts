@@ -40,6 +40,8 @@ export interface AppState {
   playing: boolean;
   /** true while the print sheet is rendered and the print dialog is open */
   printing: boolean;
+  /** lap-export dialog open */
+  exportOpen: boolean;
   rate: number;
 }
 
@@ -72,6 +74,7 @@ export const app = new Signal<AppState>({
   theme: initialTheme(),
   playing: false,
   printing: false,
+  exportOpen: false,
   rate: 1,
 });
 

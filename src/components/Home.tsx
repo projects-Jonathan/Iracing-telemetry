@@ -38,7 +38,7 @@ export function Home() {
           <>
             <svg width="40" height="40" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 16V4m0 0-4 4m4-4 4 4M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" stroke="var(--accent)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
             <div className="big">Drop telemetry files here, or click to browse</div>
-            <div className="muted">.ibt (iRacing) · .telemetry.json (SimHub)</div>
+            <div className="muted">.ibt (iRacing) · .telemetry.json (SimHub) · .unison (exported laps)</div>
             <div className="try">
               <span className="faint">No file handy?</span>
               <button
@@ -52,7 +52,7 @@ export function Home() {
             </div>
           </>
         )}
-        <input ref={input} type="file" accept=".ibt,.json" multiple hidden onChange={(e) => { openFiles([...(e.target.files ?? [])]); e.target.value = ''; }} />
+        <input ref={input} type="file" accept=".ibt,.json,.unison" multiple hidden onChange={(e) => { openFiles([...(e.target.files ?? [])]); e.target.value = ''; }} />
       </div>
     </div>
   );

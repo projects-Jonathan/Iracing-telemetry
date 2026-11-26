@@ -28,12 +28,12 @@ function parseInWorker(file: File): Promise<Session> {
   });
 }
 
-const ACCEPT = /\.(ibt|json)$/i;
+const ACCEPT = /\.(ibt|json|unison)$/i;
 
 export async function openFiles(files: File[]) {
   const usable = files.filter((f) => ACCEPT.test(f.name) && !f.name.endsWith('.metadata'));
   if (!usable.length) {
-    setApp({ error: 'Choose an iRacing .ibt file or a SimHub .telemetry.json file.' });
+    setApp({ error: 'Choose an iRacing .ibt file, a SimHub .telemetry.json file or a Unison .unison export.' });
     return;
   }
   setApp({ error: null, notice: null });
@@ -223,4 +223,33 @@ export function setTheme(theme: 'light' | 'dark') {
 export function setPanels(panels: string[]) {
   try { localStorage.setItem('panels', JSON.stringify(panels)); } catch { /* ignore */ }
   setApp({ panels });
+}
+
+// ---- export --------------------------------------------------------------
+
+/** Save the chosen laps (indices into session.laps) as a .unison file the site can open again. */
+export async function exportLaps(indices: number[]) {
+  const s = app.get().session;
+  if (!s || !indices.length) return;
+  setApp({ loading: { name: 'Export', stage: 'Packing laps', p: 0.5 } });
+  // let the "packing" state paint before the (synchronous) compression work
+  await new Promise((r) => setTimeout(r, 30));
+  try {
+    const { sliceLaps, encodeUnison, exportFileName } = await import('./exportFormat');
+    const sub = sliceLaps(s, indices);
+    const bytes = encodeUnison(sub);
+    const name = exportFileName(s, sub.laps.map((l) => l.num));
+    const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'application/octet-stream' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    const kb = bytes.length / 1024;
+    setApp({ loading: null, exportOpen: false, notice: `Exported ${sub.laps.length} lap${sub.laps.length > 1 ? 's' : ''} to "${name}" (${kb > 1024 ? `${(kb / 1024).toFixed(1)} MB` : `${Math.round(kb)} KB`}). Open it here any time to see just those laps.` });
+  } catch (e) {
+    setApp({ loading: null, error: `Export failed: ${(e as Error).message}` });
+  }
 }

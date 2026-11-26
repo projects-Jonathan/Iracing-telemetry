@@ -298,3 +298,14 @@ main.page:has(.home) { padding-bottom: 20px; }
   .print-sheet .chart-wrap canvas { width: 100% !important; height: auto !important; }
   .print-sheet * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
+
+/* ---- modal (export dialog) ---- */
+.modal-backdrop { position: fixed; inset: 0; z-index: 50; background: rgba(0, 0, 0, 0.35); display: grid; place-items: center; padding: 16px; }
+.modal { width: min(520px, 100%); max-height: calc(100dvh - 32px); display: grid; grid-template-rows: auto auto auto minmax(0, 1fr) auto; gap: 12px; padding: 18px; outline: none; }
+.modal-head { display: flex; align-items: center; }
+.modal-head h2 { margin: 0; font-size: 17px; }
+.modal-head .btn { margin-left: auto; }
+.row-actions { display: flex; align-items: center; gap: 8px; }
+.export-list { overflow: auto; border: 1px solid var(--grid); border-radius: 8px; }
+.export-list input[type='checkbox'] { accent-color: var(--accent); width: 15px; height: 15px; cursor: pointer; }
+.modal-foot { display: flex; justify-content: flex-end; gap: 8px; }

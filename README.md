@@ -16,6 +16,7 @@ Light mode by default, with a dark-mode toggle in the header.
 | --- | --- | --- | --- |
 | iRacing disk telemetry | `.ibt` | 60 Hz | Enable with Alt+L in iRacing. Saved under `Documents\iRacing\telemetry`. |
 | SimHub Telemetry/Replay | `.telemetry.json` | ~10 Hz | Despite the name, a binary file of compressed JSON frames. Tested with iRacing; other games are mapped on a best-effort basis (see `src/parsers/channels.ts`). |
+| Unison export | `.unison` | as recorded | Made with the **Export** button: the laps you tick, with every channel. Open it again to see just those laps. |
 
 ## Development
 

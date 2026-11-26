@@ -2,6 +2,8 @@
 import { parseIbt } from '../parsers/ibt';
 import { parseSimHub } from '../parsers/simhub';
 import { buildSession } from '../analysis/session';
+import { decodeUnison, isUnisonFile } from '../state/exportFormat';
+import type { Session } from '../types';
 
 export type WorkerIn = { file: File };
 export type WorkerOut =
@@ -18,10 +20,17 @@ self.onmessage = async (e: MessageEvent<WorkerIn>) => {
     const buf = await file.arrayBuffer();
     const head = new Uint8Array(buf, 0, Math.min(4, buf.byteLength));
     const isSimHub = head[0] === 0x46 && head[1] === 0x46 && head[2] === 0x30 && head[3] === 0x31;
-    const onProgress = (p: number) => post({ type: 'progress', stage: 'Decoding telemetry', p });
-    const rec = isSimHub ? parseSimHub(buf, onProgress) : parseIbt(buf, onProgress);
-    post({ type: 'progress', stage: 'Finding laps', p: 1 });
-    const session = buildSession(rec, file.name, file.size);
+    let session: Session;
+    if (isUnisonFile(head)) {
+      // Our own export: already-analysed laps, nothing to detect.
+      post({ type: 'progress', stage: 'Unpacking laps', p: 0.5 });
+      session = { ...decodeUnison(new Uint8Array(buf)), fileName: file.name, fileSize: file.size, id: `${file.name}-${file.size}` };
+    } else {
+      const onProgress = (p: number) => post({ type: 'progress', stage: 'Decoding telemetry', p });
+      const rec = isSimHub ? parseSimHub(buf, onProgress) : parseIbt(buf, onProgress);
+      post({ type: 'progress', stage: 'Finding laps', p: 1 });
+      session = buildSession(rec, file.name, file.size);
+    }
     const transfer: Transferable[] = Object.values(session.channels).map((a) => a.buffer as ArrayBuffer);
     if (session.map) transfer.push(session.map.x.buffer as ArrayBuffer, session.map.y.buffer as ArrayBuffer);
     post({ type: 'done', session }, [...new Set(transfer)]);
