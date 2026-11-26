@@ -56,7 +56,9 @@ export function SessionView({ s }: { s: Session }) {
               <div className="chart-head" ref={headRef}>
                 <span className="hint">Hover to read values · drag to zoom · double-click to reset · click to move the playhead.</span>
                 <ChannelPicker s={s} panels={panels} hasCmp={!!cmp} />
-                {zoom && <button className="btn full-graph" onClick={() => setZoom(null)}>Show full graph</button>}
+                <div className="head-right">
+                  {zoom && <button className="btn" onClick={() => setZoom(null)}>Show full graph</button>}
+                </div>
               </div>
               <Chart s={s} ref_={ref} cmp={cmp} panels={panels} zoom={zoom} fitHeight={fitHeight} />
             </section>

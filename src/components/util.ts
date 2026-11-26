@@ -6,8 +6,9 @@ export interface Colors {
   track: string; ref: string; cmp: string; seqLo: string; seqHi: string; gain: string; loss: string;
 }
 
-export function readColors(): Colors {
-  const cs = getComputedStyle(document.documentElement);
+/** Read the colour tokens in effect on `el` (defaults to the page root, i.e. the current theme). */
+export function readColors(el: Element = document.documentElement): Colors {
+  const cs = getComputedStyle(el);
   const v = (n: string) => cs.getPropertyValue(n).trim();
   return {
     bg: v('--bg'), surface: v('--surface'), ink: v('--ink'), ink2: v('--ink-2'), ink3: v('--ink-3'),
@@ -37,9 +38,9 @@ export function useWidth(ref: RefObject<HTMLElement | null>): number {
 }
 
 /** Size a canvas for crisp drawing at the device pixel ratio; returns a context in CSS pixels. */
-export function prepCanvas(c: HTMLCanvasElement | null, w: number, h: number): CanvasRenderingContext2D | null {
+export function prepCanvas(c: HTMLCanvasElement | null, w: number, h: number, ratio?: number): CanvasRenderingContext2D | null {
   if (!c || w <= 0 || h <= 0) return null;
-  const dpr = window.devicePixelRatio || 1;
+  const dpr = ratio ?? (window.devicePixelRatio || 1);
   if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) {
     c.width = Math.round(w * dpr);
     c.height = Math.round(h * dpr);

@@ -38,6 +38,8 @@ export interface AppState {
   mapChannel: string;
   theme: 'light' | 'dark';
   playing: boolean;
+  /** true while the print sheet is rendered and the print dialog is open */
+  printing: boolean;
   rate: number;
 }
 
@@ -69,6 +71,7 @@ export const app = new Signal<AppState>({
   mapChannel: 'speed',
   theme: initialTheme(),
   playing: false,
+  printing: false,
   rate: 1,
 });
 

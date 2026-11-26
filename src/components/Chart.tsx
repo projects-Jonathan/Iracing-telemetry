@@ -15,6 +15,15 @@ interface Props {
   zoom: [number, number] | null;
   /** total chart height to fill (CSS px), or null for natural panel heights */
   fitHeight?: number | null;
+  /** Print mode: fixed colours (light), higher canvas resolution, panels may shrink further, no cursor layer. */
+  colorsOverride?: Colors;
+  pixelRatio?: number;
+  minScale?: number;
+  staticOnly?: boolean;
+  /** use this width instead of measuring the container (print: no waiting on layout) */
+  fixedWidth?: number;
+  /** called after the traces have been drawn */
+  onDrawn?: () => void;
 }
 
 interface PanelGeo {
@@ -42,12 +51,14 @@ function panelHeight(key: string): number {
   return 104;
 }
 
-export function Chart({ s, ref_, cmp, panels, zoom, fitHeight = null }: Props) {
+export function Chart({ s, ref_, cmp, panels, zoom, fitHeight = null, colorsOverride, pixelRatio, minScale = 0.6, staticOnly = false, fixedWidth, onDrawn }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const baseRef = useRef<HTMLCanvasElement>(null);
   const overRef = useRef<HTMLCanvasElement>(null);
-  const width = useWidth(wrapRef);
-  const colors = useColors();
+  const measured = useWidth(wrapRef);
+  const width = fixedWidth ?? measured;
+  const themeColors = useColors();
+  const colors = colorsOverride ?? themeColors;
   const [sel, setSel] = useState<[number, number] | null>(null);
   const drag = useRef<{ x0: number; moved: boolean } | null>(null);
 
@@ -97,7 +108,7 @@ export function Chart({ s, ref_, cmp, panels, zoom, fitHeight = null }: Props) {
     if (fitHeight && out.length) {
       const fixed = CORNER_ROW + AXIS + out.length * (TITLE + GAP);
       const natural = out.reduce((t, p) => t + p.h, 0);
-      const scale = Math.max(0.6, (fitHeight - fixed) / natural);
+      const scale = Math.max(minScale, (fitHeight - fixed) / natural);
       let top = CORNER_ROW;
       for (const p of out) {
         p.h = Math.floor(p.h * scale);
@@ -110,7 +121,7 @@ export function Chart({ s, ref_, cmp, panels, zoom, fitHeight = null }: Props) {
       y = top;
     }
     return { panels: out, height: y + AXIS };
-  }, [s, ref_, cmp, panels, d0, d1, fitHeight]);
+  }, [s, ref_, cmp, panels, d0, d1, fitHeight, minScale]);
 
   const plotW = Math.max(10, width - ML - MR);
   const xOf = (d: number) => ML + ((d - d0) / (d1 - d0)) * plotW;
@@ -118,15 +129,17 @@ export function Chart({ s, ref_, cmp, panels, zoom, fitHeight = null }: Props) {
 
   // ---- base layer: grid, traces, labels ----
   useEffect(() => {
-    const ctx = prepCanvas(baseRef.current, width, geo.height);
+    const ctx = prepCanvas(baseRef.current, width, geo.height, pixelRatio);
     if (!ctx) return;
     drawBase(ctx, geo.panels, colors, { width, height: geo.height, d0, d1, step: ref_.step, xOf, sectors: s.sectors.map((p) => p * L), corners: corners.map((c) => ({ name: c.name, d: c.apex * ref_.step })) });
+    onDrawn?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [geo, width, colors, d0, d1]);
 
   // ---- overlay: cursor, ghost, values, selection ----
   useEffect(() => {
     const draw = () => {
+      if (staticOnly) return;
       const ctx = prepCanvas(overRef.current, width, geo.height);
       if (!ctx) return;
       const c = cursor.get();

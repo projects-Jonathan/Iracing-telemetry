@@ -1,5 +1,5 @@
 /* Light is the default theme; dark is opt-in via the header toggle (data-theme="dark"). */
-:root {
+:root, .force-light {
   color-scheme: light;
   --bg: #f4f5f3;
   --surface: #fcfcfb;
@@ -142,7 +142,7 @@ h2.section { font-size: 15px; font-weight: 600; margin: 0 0 10px; }
 .chart-card { padding: 8px 8px 4px; }
 .chart-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 4px 8px 6px; }
 .chart-head .hint { font-size: 12px; color: var(--ink-3); flex: 1 1 100%; }
-.chart-head .full-graph { margin-left: auto; }
+.chart-head .head-right { margin-left: auto; display: flex; gap: 8px; }
 .chart-wrap { position: relative; }
 .chart-wrap canvas { display: block; width: 100%; }
 .chart-wrap canvas.overlay { position: absolute; inset: 0; touch-action: pan-y; cursor: crosshair; }
@@ -279,3 +279,22 @@ main.page:has(.home) { padding-bottom: 20px; }
 .lapsel-list li .num { text-align: right; }
 .lapsel-list li.active { background: var(--surface-2); }
 .lapsel-list li.selected { font-weight: 600; }
+
+/* ---- print: graph only, one landscape page ---- */
+.print-sheet { position: fixed; left: -20000px; top: 0; background: #fff; color: var(--ink); font-family: var(--font); }
+.print-sheet .chart-wrap canvas.overlay { display: none; }
+.print-key { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; height: 34px; font-size: 12px; color: var(--ink-2); }
+.print-key strong { color: var(--ink); font-size: 14px; }
+.print-key .sw { vertical-align: middle; margin-right: 2px; }
+.print-key .print-range { margin-left: auto; padding-right: 6px; font-family: var(--mono); }
+@media print {
+  @page { size: landscape; margin: 10mm; }
+  :root, :root[data-theme='dark'] { color-scheme: light !important; background: #fff !important; }
+  html, body { background: #fff !important; }
+  body > #root { display: none !important; }
+  .print-sheet { position: static; left: auto; width: 100% !important; }
+  /* scale the drawing to the page width, keeping its proportions */
+  .print-sheet .chart-wrap { height: auto !important; }
+  .print-sheet .chart-wrap canvas { width: 100% !important; height: auto !important; }
+  .print-sheet * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
